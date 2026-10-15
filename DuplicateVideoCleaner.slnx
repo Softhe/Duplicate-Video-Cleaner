@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="DuplicateVideoCleaner.Tests/DuplicateVideoCleaner.Tests.csproj" />
+  <Project Path="DuplicateVideoCleaner.UiTests/DuplicateVideoCleaner.UiTests.csproj" />
+  <Project Path="DuplicateVideoCleaner/DuplicateVideoCleaner.csproj" />
+</Solution>

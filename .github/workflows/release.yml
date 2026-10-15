@@ -1,0 +1,72 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Run service tests
+        run: dotnet run --project DuplicateVideoCleaner.Tests/DuplicateVideoCleaner.Tests.csproj -c Release
+
+      - name: Build app for UI tests
+        run: dotnet build DuplicateVideoCleaner/DuplicateVideoCleaner.csproj -c Release
+
+      - name: Run UI tests
+        run: dotnet test DuplicateVideoCleaner.UiTests/DuplicateVideoCleaner.UiTests.csproj -c Release
+
+      - name: Publish portable exe
+        run: dotnet publish DuplicateVideoCleaner/DuplicateVideoCleaner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o DuplicateVideoCleaner/publish
+
+      - name: Download FFmpeg shared build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip"
+          $expected = "D0E27B409599525395A0982C88A4597D0F764EF038AEB20ED5DBCA74B3654FBF"
+          $archive = Join-Path $env:TEMP "ffmpeg-shared.zip"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw "FFmpeg checksum mismatch: $actual" }
+          $extract = Join-Path $env:TEMP "dvc-ffmpeg"
+          if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+          $root = Get-ChildItem -LiteralPath $extract -Directory | Select-Object -First 1
+          $version = & (Join-Path $root.FullName "bin\ffprobe.exe") -version
+          if ($version[0] -notmatch "ffprobe version n8\.1\.2") { throw "Unexpected ffprobe version: $($version[0])" }
+          echo "FFMPEG_ROOT=$($root.FullName)" >> $env:GITHUB_ENV
+
+      - name: Assemble portable folder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $releaseRoot = "release/DuplicateVideoCleaner-1.1.0-win-x64-portable"
+          New-Item -ItemType Directory -Path "$releaseRoot/tools" -Force | Out-Null
+          Copy-Item "DuplicateVideoCleaner/publish/DuplicateVideoCleaner.exe" $releaseRoot
+          Copy-Item "$env:FFMPEG_ROOT/bin/ffprobe.exe" "$releaseRoot/tools"
+          Get-ChildItem "$env:FFMPEG_ROOT/bin" -Filter "*.dll" | Copy-Item -Destination "$releaseRoot/tools"
+          Copy-Item "README.md","CHANGELOG.md","LICENSE.txt","FFMPEG-NOTICE.md" $releaseRoot
+          Copy-Item "$env:FFMPEG_ROOT/LICENSE.txt" "$releaseRoot/FFMPEG-LICENSE.txt"
+          $checksums = Get-ChildItem $releaseRoot -Recurse -File | Sort-Object FullName | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, [System.IO.Path]::GetRelativePath($releaseRoot, $_.FullName) }
+          [System.IO.File]::WriteAllLines("$releaseRoot/SHA256SUMS.txt", $checksums)
+          Compress-Archive $releaseRoot "release/DuplicateVideoCleaner-1.1.0-win-x64-portable.zip" -CompressionLevel Optimal
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/DuplicateVideoCleaner-1.1.0-win-x64-portable.zip
+          generate_release_notes: true
