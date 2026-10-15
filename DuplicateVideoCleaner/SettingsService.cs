@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace DuplicateVideoCleaner;
 
@@ -34,7 +36,8 @@ internal sealed class SettingsService
         try
         {
             if (!File.Exists(SettingsPath)) return new AppSettings();
-            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath), JsonOptions);
+            using var stream = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var settings = JsonSerializer.Deserialize<AppSettings>(stream, JsonOptions);
             return Validate(settings ?? new AppSettings());
         }
         catch
@@ -48,9 +51,24 @@ internal sealed class SettingsService
         settings = Validate(settings);
         var directory = Path.GetDirectoryName(SettingsPath)!;
         Directory.CreateDirectory(directory);
-        var temporary = SettingsPath + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(settings, JsonOptions));
-        File.Move(temporary, SettingsPath, true);
+        var temporary = SettingsPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        var pathKey = Path.GetFullPath(SettingsPath).ToUpperInvariant();
+        var mutexName = "Local\\DuplicateVideoCleaner.Settings." + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(pathKey)));
+        using var mutex = new Mutex(false, mutexName);
+        var acquired = false;
+        try
+        {
+            try { acquired = mutex.WaitOne(TimeSpan.FromSeconds(5)); }
+            catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired) throw new IOException("Settings are busy in another application instance. Try again.");
+            File.WriteAllText(temporary, JsonSerializer.Serialize(settings, JsonOptions));
+            File.Move(temporary, SettingsPath, true);
+        }
+        finally
+        {
+            try { File.Delete(temporary); } catch { }
+            if (acquired) mutex.ReleaseMutex();
+        }
     }
 
     internal static AppSettings Validate(AppSettings settings) => settings with

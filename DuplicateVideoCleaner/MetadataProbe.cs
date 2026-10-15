@@ -22,23 +22,29 @@ internal sealed class MetadataProbe
     internal async Task<IReadOnlyDictionary<string, MediaMetadata>> ProbeManyAsync(IEnumerable<VideoCandidate> files, CancellationToken cancellationToken = default)
     {
         var results = new ConcurrentDictionary<string, MediaMetadata>(StringComparer.OrdinalIgnoreCase);
-        using var gate = new SemaphoreSlim(2);
-        await Task.WhenAll(files.Select(async file =>
+        await Parallel.ForEachAsync(files, new ParallelOptions
         {
-            await gate.WaitAsync(cancellationToken);
-            try { results[file.FullPath] = await ProbeAsync(file.FullPath, cancellationToken); }
-            finally { gate.Release(); }
-        }));
+            MaxDegreeOfParallelism = 2,
+            CancellationToken = cancellationToken
+        }, async (file, token) =>
+        {
+            results[file.FullPath] = await ProbeAsync(file.FullPath, token);
+        });
         return results;
     }
 
     internal async Task<MediaMetadata> ProbeAsync(string path, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!IsAvailable) return new MediaMetadata(null, null, null, MetadataProbeStatus.Unavailable, "ffprobe was not found");
-        FileInfo info;
-        try { info = new FileInfo(path); if (!info.Exists) throw new FileNotFoundException("Media file was not found.", path); }
+        string key;
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists) throw new FileNotFoundException("Media file was not found.", path);
+            key = CreateCacheKey(info);
+        }
         catch (Exception ex) { return new MediaMetadata(null, null, null, MetadataProbeStatus.Failed, ex.Message); }
-        var key = CreateCacheKey(info);
         if (_cache.TryGetValue(key, out var cached)) return cached;
 
         using var process = new Process
@@ -65,8 +71,8 @@ internal sealed class MetadataProbe
         try
         {
             process.Start();
-            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(_timeout);
             await process.WaitForExitAsync(timeout.Token);
@@ -76,9 +82,13 @@ internal sealed class MetadataProbe
             _cache[key] = result;
             return result;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            try { process.Kill(true); } catch { }
+            try { if (!process.HasExited) process.Kill(true); } catch (InvalidOperationException) { }
+            catch (System.ComponentModel.Win32Exception) { }
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException) { }
+            cancellationToken.ThrowIfCancellationRequested();
             return new MediaMetadata(null, null, null, MetadataProbeStatus.TimedOut, "ffprobe timed out");
         }
         catch (Exception ex)
@@ -104,7 +114,7 @@ internal sealed class MetadataProbe
             if (root.TryGetProperty("format", out var format) && format.TryGetProperty("duration", out var durationElement) &&
                 double.TryParse(durationElement.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
                 duration = TimeSpan.FromMilliseconds(Math.Round(seconds * 1000, MidpointRounding.AwayFromZero));
-            return duration is not null && width is not null && height is not null
+            return duration >= TimeSpan.Zero && width > 0 && height > 0
                 ? new MediaMetadata(duration, width, height, MetadataProbeStatus.Available)
                 : new MediaMetadata(duration, width, height, MetadataProbeStatus.Failed, "Required metadata was missing");
         }

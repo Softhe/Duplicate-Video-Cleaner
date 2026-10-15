@@ -11,9 +11,15 @@ public sealed record VideoCandidate(
     string RelativePath,
     DateTime Timestamp,
     TimestampSource TimestampSource,
-    long Size);
+    long Size,
+    DateTime? CreationTimeUtc = null,
+    DateTime? LastWriteTimeUtc = null,
+    string? FileIdentity = null);
 
 public sealed record DuplicateGroup(int Number, IReadOnlyList<VideoCandidate> Files, VideoCandidate SuggestedKeep);
+
+public sealed record ScanDiagnostic(string Path, string Message);
+public sealed record ScanResult(IReadOnlyList<DuplicateGroup> Groups, IReadOnlyList<ScanDiagnostic> Diagnostics);
 
 public static partial class DuplicateScanner
 {
@@ -21,25 +27,87 @@ public static partial class DuplicateScanner
         string rootPath,
         int thresholdSeconds,
         bool includeSubfolders,
-        KeepMode keepMode)
+        KeepMode keepMode,
+        CancellationToken cancellationToken = default) =>
+        ScanDetailed(rootPath, thresholdSeconds, includeSubfolders, keepMode, cancellationToken).Groups;
+
+    public static ScanResult ScanDetailed(string rootPath, int thresholdSeconds, bool includeSubfolders,
+        KeepMode keepMode, CancellationToken cancellationToken = default) =>
+        ScanDetailedCore(rootPath, thresholdSeconds, includeSubfolders, keepMode, cancellationToken,
+            path => Directory.EnumerateFileSystemEntries(path));
+
+    internal static ScanResult ScanDetailedCore(string rootPath, int thresholdSeconds, bool includeSubfolders,
+        KeepMode keepMode, CancellationToken cancellationToken, Func<string, IEnumerable<string>> enumerateEntries)
     {
         if (string.IsNullOrWhiteSpace(rootPath)) throw new ArgumentException("A folder is required.", nameof(rootPath));
-        if (!Directory.Exists(rootPath)) throw new DirectoryNotFoundException($"Folder not found: {rootPath}");
         if (thresholdSeconds <= 0) throw new ArgumentOutOfRangeException(nameof(thresholdSeconds), "Threshold must be positive.");
 
-        var option = includeSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-        var candidates = Directory.EnumerateFiles(rootPath, "*", option)
-            .Where(IsSupportedVideo)
-            .Select(path => CreateCandidate(rootPath, path))
-            .OrderBy(file => file.Timestamp)
-            .ThenBy(file => file.FullPath, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        cancellationToken.ThrowIfCancellationRequested();
+        rootPath = Path.GetFullPath(rootPath);
+        var diagnostics = new List<ScanDiagnostic>();
+        var candidates = new List<VideoCandidate>();
+        var pending = new Stack<string>();
+        pending.Push(rootPath);
+        while (pending.TryPop(out var directory))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var directoryAttributes = File.GetAttributes(directory);
+                if ((directoryAttributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    diagnostics.Add(new(directory, "Skipped a reparse point to avoid following links."));
+                    continue;
+                }
+                if ((directoryAttributes & FileAttributes.Directory) == 0)
+                {
+                    diagnostics.Add(new(directory, "Skipped path because it is no longer a directory."));
+                    continue;
+                }
+                using var entries = enumerateEntries(directory).GetEnumerator();
+                while (true)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!entries.MoveNext()) break;
+                    var path = entries.Current;
+                    try
+                    {
+                        var attributes = File.GetAttributes(path);
+                        if ((attributes & FileAttributes.ReparsePoint) != 0)
+                        {
+                            diagnostics.Add(new(path, "Skipped a reparse point to avoid following links."));
+                            continue;
+                        }
+                        if ((attributes & FileAttributes.Directory) != 0)
+                        {
+                            if (includeSubfolders) pending.Push(path);
+                        }
+                        else if (IsSupportedVideo(path)) candidates.Add(CreateCandidate(rootPath, path));
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        diagnostics.Add(new(path, $"Skipped entry: {ex.Message}"));
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                diagnostics.Add(new(directory, $"Skipped directory: {ex.Message}"));
+            }
+        }
+        candidates.Sort((left, right) =>
+        {
+            var comparison = left.Timestamp.CompareTo(right.Timestamp);
+            return comparison != 0 ? comparison : StringComparer.OrdinalIgnoreCase.Compare(left.FullPath, right.FullPath);
+        });
+        cancellationToken.ThrowIfCancellationRequested();
 
         var result = new List<DuplicateGroup>();
         var current = new List<VideoCandidate>();
 
         foreach (var candidate in candidates)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (current.Count == 0 || (candidate.Timestamp - current[^1].Timestamp).TotalSeconds <= thresholdSeconds)
             {
                 current.Add(candidate);
@@ -51,7 +119,7 @@ public static partial class DuplicateScanner
         }
 
         AddGroupIfDuplicate(result, current, keepMode);
-        return result;
+        return new ScanResult(result, diagnostics);
     }
 
     public static (DateTime Timestamp, TimestampSource Source) GetEffectiveTimestamp(string fileName, DateTime creationTime)
@@ -83,7 +151,10 @@ public static partial class DuplicateScanner
             Path.GetRelativePath(rootPath, info.FullName),
             effective.Timestamp,
             effective.Source,
-            info.Length);
+            info.Length,
+            info.CreationTimeUtc,
+            info.LastWriteTimeUtc,
+            FileSnapshot.GetIdentity(info.FullName));
     }
 
     private static void AddGroupIfDuplicate(List<DuplicateGroup> groups, List<VideoCandidate> files, KeepMode keepMode)

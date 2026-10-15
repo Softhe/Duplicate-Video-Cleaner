@@ -6,6 +6,7 @@ using FlaUI.Core.Tools;
 using FlaUI.Core.WindowsAPI;
 using FlaUI.UIA3;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Application = FlaUI.Core.Application;
 
 namespace DuplicateVideoCleaner.UiTests;
 
@@ -142,6 +143,20 @@ public sealed class WorkspaceWorkflowTests
         dialog.FindFirstDescendant(cf => cf.ByName("Cancel"))!.AsButton().Invoke();
         WaitForWindowClosed("Confirm deletion");
         Assert.IsTrue(File.Exists(Path.Combine(_root, "2026-08-02 10-00-30 second.mkv")), "A confirmation-only test removed a fixture.");
+    }
+
+    [TestMethod]
+    public void CompletedScanDescriptionSurvivesEditingSource()
+    {
+        EnterFolder(_root);
+        Invoke("Scan videos");
+        WaitFor("Review workspace");
+        Assert.IsNotNull(FindContaining($"{_root} · 60s · Keep Oldest · Current folder only"));
+        ControlShortcut(VirtualKeyShort.KEY_1);
+        EnterFolder(Path.Combine(_root, "different-source"));
+        ControlShortcut(VirtualKeyShort.KEY_2);
+        WaitFor("Review workspace");
+        Assert.IsNotNull(FindContaining($"{_root} · 60s · Keep Oldest · Current folder only"));
     }
 
     [TestMethod]

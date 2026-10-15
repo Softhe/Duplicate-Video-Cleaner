@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -15,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\DuplicateVideoCleaner\DuplicateVideoCleaner.csproj" />
+    <ProjectReference Include="..\DuplicateVideoCleaner.Tests\DuplicateVideoCleaner.Tests.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

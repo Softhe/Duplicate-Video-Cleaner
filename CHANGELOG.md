@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 1.1.1 — 2026-10-15
+
+- Serialized settings writes so concurrent saves retain a readable preferences file.
+- Recomputed group keepers and suggestions after removal.
+
+- Stopped removal when scanned file metadata or Windows file identity changes, snapshots are missing, or files are reparse points.
+- Recorded audit intent and outcome per file, stopped batches on audit failure, and preserved accurate completed-removal results.
+- Bound cleanup logs and dry-run reports to the original scan folder and rules.
+- Reported skipped scan entries, discarded canceled scans, and stopped canceled metadata probes.
+- Prevented repeated dry-run exports from overwriting earlier reports and surfaced invalid export destinations.
+
+- Added a per-user Windows EXE installer with Start menu integration and uninstall support, plus a portable ZIP from the same verified payload.
+- Included screenshot documentation in both packages and published download checksums.
+- Pinned the FFmpeg dependency to a dated release and expected SHA256; corrupted downloads and cache entries fail before extraction.
 
 - Reworked every workspace and the removal confirmation dialog with a dark navy palette, mint accents, brighter text, and larger Segoe UI typography.
 - Added compact review summaries, selection markers, consistent action styling, and dark dropdowns.

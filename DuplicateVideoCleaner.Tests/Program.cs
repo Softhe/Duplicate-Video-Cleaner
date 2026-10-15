@@ -1,5 +1,7 @@
 using DuplicateVideoCleaner;
 
+if (MetadataRegressionTests.TryRunFixture(args, out var fixtureExit)) return fixtureExit;
+
 var tests = new List<(string Name, Func<Task> Run)>
 {
     ("filename timestamp", Sync(FilenameTimestamp)),
@@ -10,12 +12,18 @@ var tests = new List<(string Name, Func<Task> Run)>
     ("extensions and recursion", Sync(ExtensionsAndRecursion)),
     ("settings defaults and corruption", Sync(SettingsDefaultsAndCorruption)),
     ("settings validation and persistence", Sync(SettingsValidationAndPersistence)),
+    ("concurrent settings saves remain readable", ConcurrentSettingsSaves),
     ("metadata parsing", Sync(MetadataParsing)),
     ("confidence levels", Sync(ConfidenceLevels)),
     ("metadata cache invalidation key", Sync(CacheInvalidationKey)),
     ("dry run CSV and text", Sync(DryRunOutputs)),
+    ("dry run destination failure", Sync(DryRunDestinationFailure)),
+    ("dry run repeated exports preserve reports", Sync(DryRunRepeatedExports)),
     ("partial removal integration", PartialRemovalIntegration)
 };
+tests.AddRange(RemovalRegressionTests.Cases);
+tests.Add(("scanner cancellation and snapshots", Sync(ScannerRegressionTests.CancellationAndSnapshots)));
+tests.Add(("metadata real process cancellation and timeout", MetadataRegressionTests.ProcessesAndCancellation));
 
 var failed = 0;
 foreach (var test in tests)
@@ -112,6 +120,22 @@ static void MetadataParsing()
     Equal(MetadataProbeStatus.Failed, MetadataProbe.Parse("{}").Status);
 }
 
+static async Task ConcurrentSettingsSaves()
+{
+    var root = Path.Combine(Path.GetTempPath(), "dvc-settings-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    try
+    {
+        var path = Path.Combine(root, "settings.json");
+        await Task.WhenAll(Enumerable.Range(1, 20).Select(index => Task.Run(() =>
+            new SettingsService(path).Save(new AppSettings { ThresholdSeconds = index }))));
+        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        Assert(document.RootElement.GetProperty("ThresholdSeconds").GetInt32() is >= 1 and <= 20, "Concurrent saves corrupted settings.");
+        Assert(!Directory.EnumerateFiles(root, "*.tmp").Any(), "Concurrent save left temporary files.");
+    }
+    finally { Directory.Delete(root, true); }
+}
+
 static void ConfidenceLevels()
 {
     var root = "C:\\test";
@@ -150,6 +174,26 @@ static void DryRunOutputs() => WithFolder(root =>
     Assert(!Directory.EnumerateFiles(root, "*.tmp").Any(), "Atomic export temporary file remained.");
 });
 
+static void DryRunDestinationFailure() => WithFolder(root =>
+{
+    var destination = Path.Combine(root, "not-a-folder");
+    File.WriteAllText(destination, "occupied");
+    var result = DryRunExporter.Export(destination, new DryRunContext(root, 60, KeepMode.Oldest, false, []));
+    Assert(result.Errors.Count > 0 && result.CsvPath is null && result.TextPath is null,
+        "An invalid destination must return an export error without throwing.");
+});
+
+static void DryRunRepeatedExports() => WithFolder(root =>
+{
+    var context = new DryRunContext(root, 60, KeepMode.Oldest, false, []);
+    var now = new DateTimeOffset(2026, 1, 1, 1, 1, 1, TimeSpan.Zero);
+    var first = DryRunExporter.Export(root, context, now);
+    var second = DryRunExporter.Export(root, context, now);
+    Assert(first.Errors.Count == 0 && second.Errors.Count == 0, "Repeated export failed.");
+    Assert(first.CsvPath != second.CsvPath && first.TextPath != second.TextPath, "Repeated export overwrote a prior report.");
+    Assert(File.Exists(first.CsvPath) && File.Exists(first.TextPath), "Earlier reports disappeared.");
+});
+
 static async Task PartialRemovalIntegration()
 {
     var root = Path.Combine(Path.GetTempPath(), "DuplicateVideoCleanerRemovalTests", Guid.NewGuid().ToString("N"));
@@ -159,7 +203,9 @@ static async Task PartialRemovalIntegration()
         var existingPath = Path.Combine(root, "existing.mp4");
         File.WriteAllBytes(existingPath, [1, 2, 3]);
         var missingPath = Path.Combine(root, "missing.mp4");
-        var result = await FileRemovalService.RemoveAsync([Candidate(existingPath, 3), Candidate(missingPath, 3)], true, Path.Combine(root, "log.txt"));
+        File.WriteAllBytes(Path.Combine(root, "other.mp4"), [1, 2, 3]);
+        var scanned = DuplicateScanner.Scan(root, 60, false, KeepMode.Oldest).Single().Files.Single(file => file.FullPath == existingPath);
+        var result = await FileRemovalService.RemoveAsync([scanned, Candidate(missingPath, 3)], true, Path.Combine(root, "log.txt"));
         Equal(1, result.RemovedPaths.Count);
         Equal(1, result.Failures.Count);
         Assert(!File.Exists(existingPath), "Existing fixture was not removed.");

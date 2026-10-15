@@ -11,8 +11,9 @@ internal static class DryRunExporter
 {
     internal static ExportResult Export(string destination, DryRunContext context, DateTimeOffset? now = null)
     {
-        Directory.CreateDirectory(destination);
-        var stamp = (now ?? DateTimeOffset.Now).ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        try { Directory.CreateDirectory(destination); }
+        catch (Exception ex) { return new ExportResult(null, null, [$"Destination: {ex.Message}"]); }
+        var stamp = (now ?? DateTimeOffset.Now).ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N");
         var csvPath = Path.Combine(destination, $"DuplicateVideoDryRun-{stamp}.csv");
         var textPath = Path.Combine(destination, $"DuplicateVideoDryRun-{stamp}.txt");
         var errors = new List<string>();
@@ -64,7 +65,14 @@ internal static class DryRunExporter
     private static void AtomicWrite(string path, string contents)
     {
         var temporary = path + ".tmp";
-        File.WriteAllText(temporary, contents, new UTF8Encoding(false));
-        File.Move(temporary, path, true);
+        try
+        {
+            File.WriteAllText(temporary, contents, new UTF8Encoding(false));
+            File.Move(temporary, path, false);
+        }
+        finally
+        {
+            try { File.Delete(temporary); } catch { }
+        }
     }
 }
