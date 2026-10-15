@@ -6,7 +6,6 @@ $releaseRoot = Join-Path $root "release\DuplicateVideoCleaner-1.1.0-win-x64-port
 $archive = Join-Path $env:TEMP "ffmpeg-n8.1-win64-lgpl-shared.zip"
 $ffmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip"
 
-& (Join-Path $PSScriptRoot "CreateIcon.ps1")
 dotnet run --project (Join-Path $root "DuplicateVideoCleaner.Tests\DuplicateVideoCleaner.Tests.csproj") -c $Configuration
 if ($LASTEXITCODE -ne 0) { throw "Unit/integration tests failed." }
 dotnet test (Join-Path $root "DuplicateVideoCleaner.UiTests\DuplicateVideoCleaner.UiTests.csproj") -c $Configuration
