@@ -50,6 +50,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Text = "Duplicate Video Cleaner";
+        Program.ApplyIcon(this);
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(980, 640);
         Size = new Size(1240, 790);

@@ -6,6 +6,7 @@
 - Added compact review summaries, selection markers, consistent action styling, and dark dropdowns.
 - Corrected theme application to preserve semantic status colors and selected file backgrounds.
 - Added UI checks for summary density, multiple groups, action bounds, and expansion state, with optional screenshot evidence.
+- Fixed the main window and the confirmation dialog showing the default icon on the title bar and taskbar instead of the application icon.
 
 ## 1.1.0 — 2026-08-02
 

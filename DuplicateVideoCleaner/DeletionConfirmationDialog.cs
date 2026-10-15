@@ -5,6 +5,7 @@ internal sealed class DeletionConfirmationDialog : Form
     internal DeletionConfirmationDialog(IReadOnlyList<VideoCandidate> files, bool permanent, string formattedSize)
     {
         Text = "Confirm deletion";
+        Program.ApplyIcon(this);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MinimizeBox = false;
