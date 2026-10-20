@@ -49,7 +49,7 @@ try
     Invoke("Expand group 1");
     Wait("File: 2026-10-10 18-30-25 recording-copy.mp4");
     Capture("review-details", window);
-    Find("Move selected files to Recycle Bin").AsButton().Click();
+    Find("Move selected files to Recovery").AsButton().Click();
     var dialog = Retry.WhileNull(() => automation.GetDesktop().FindFirstDescendant(cf =>
         cf.ByName("Confirm deletion").And(cf.ByControlType(ControlType.Window)))?.AsWindow(), TimeSpan.FromSeconds(10)).Result
         ?? throw new IOException("Confirmation dialog did not appear.");

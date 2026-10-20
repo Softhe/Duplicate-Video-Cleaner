@@ -6,7 +6,18 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
-        Application.Run(new MainForm());
+        var maintenance = Task.Run<IReadOnlyList<string>>(() =>
+        {
+            try { return AbandonedProbeCleanup.Run(); }
+            catch (Exception ex) { return new[] { "Abandoned metadata cleanup was skipped: " + ex.Message }; }
+        });
+        using var form = new MainForm();
+        form.Shown += async (_, _) =>
+        {
+            var warnings = await maintenance;
+            if (!form.IsDisposed && !form.Disposing) form.ReportMaintenanceWarnings(warnings);
+        };
+        Application.Run(form);
     }
 
     internal static void ApplyIcon(Form form)

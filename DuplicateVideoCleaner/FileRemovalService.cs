@@ -1,5 +1,3 @@
-using Microsoft.VisualBasic.FileIO;
-
 namespace DuplicateVideoCleaner;
 
 internal sealed record RemovalFailure(VideoCandidate File, string Error);
@@ -51,7 +49,7 @@ internal static class FileRemovalService
             }
             return new RemovalResult(removed, failures, auditError);
 
-            string Describe(VideoCandidate file) => $"Mode={(permanent ? "Permanent" : "RecycleBin")} | {file.FullPath}";
+            string Describe(VideoCandidate file) => $"Mode={(permanent ? "Permanent" : "Recovery")} | {file.FullPath}";
             bool TryLog(string message)
             {
                 try { appendLog(logPath, message); return true; }
@@ -85,13 +83,14 @@ internal static class FileRemovalService
 
     private static void DeleteFile(VideoCandidate file, bool permanent)
     {
-        if (permanent) File.Delete(file.FullPath);
-        else FileSystem.DeleteFile(file.FullPath, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
+        if (permanent) FileSnapshot.DeleteValidated(file);
+        else RecoveryStore.MoveToRecovery(file);
     }
 
     private static void AppendLog(string path, string message)
     {
-        using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+        using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        using var stream = FileSnapshot.OpenAppendLog(path);
         using var writer = new StreamWriter(stream);
         writer.WriteLine($"{DateTimeOffset.Now:O} | {message.Replace("\r", "\\r").Replace("\n", "\\n")}");
         writer.Flush();

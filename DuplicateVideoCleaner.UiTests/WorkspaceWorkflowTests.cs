@@ -28,7 +28,8 @@ public sealed class WorkspaceWorkflowTests
         File.WriteAllBytes(Path.Combine(_root, "2026-08-02 10-00-30 second.mkv"), [1, 2]);
         Environment.SetEnvironmentVariable("DVC_SETTINGS_PATH", Path.Combine(_root, "settings.json"));
         Environment.SetEnvironmentVariable("FFPROBE_PATH", Path.Combine(_root, "missing-ffprobe.exe"));
-        var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "DuplicateVideoCleaner", "bin", "Release", "net9.0-windows", "DuplicateVideoCleaner.exe"));
+        var executable = Environment.GetEnvironmentVariable("DVC_TEST_APP_PATH") ??
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "DuplicateVideoCleaner", "bin", "Release", "net10.0-windows", "DuplicateVideoCleaner.exe"));
         _application = Application.Launch(executable);
         _automation = new UIA3Automation();
         _window = _application.GetMainWindow(_automation, TimeSpan.FromSeconds(10)) ?? throw new AssertFailedException("Main window did not open.");
@@ -98,6 +99,32 @@ public sealed class WorkspaceWorkflowTests
     }
 
     [TestMethod]
+    public void LongScanContextKeepsReviewActionsInsideTheWindow()
+    {
+        var source = Directory.CreateDirectory(Path.Combine(_root,
+            "a-long-video-source-folder-to-exercise-the-review-context-layout")).FullName;
+        foreach (var file in Directory.EnumerateFiles(_root, "*.mp4").Concat(Directory.EnumerateFiles(_root, "*.mkv")))
+            File.Move(file, Path.Combine(source, Path.GetFileName(file)));
+        EnterFolder(source);
+        Invoke("Scan videos");
+        WaitFor("Review workspace");
+        WaitFor("Expand group 1");
+        var window = _window.BoundingRectangle;
+        foreach (var name in new[] { "Rescan videos", "Clear results", "Select suggested removals in group 1",
+            "Clear selections in group 1", "Expand group 1" })
+        {
+            var control = Find(name).BoundingRectangle;
+            Assert.IsTrue(control.Width > 0 && control.Left >= window.Left && control.Right <= window.Right &&
+                control.Top >= window.Top && control.Bottom <= window.Bottom,
+                $"Review action '{name}' is clipped outside the window: {control}; window {window}.");
+        }
+        CaptureEvidence("review-long-context");
+        Invoke("Expand group 1");
+        var metadata = FindContaining("Effective timestamp:").BoundingRectangle;
+        Assert.IsTrue(metadata.Right <= window.Right, "Expanded metadata is clipped outside the window.");
+    }
+
+    [TestMethod]
     public void MultipleGroupsKeepReadableSummariesAndAccessibleActions()
     {
         for (var day = 3; day <= 7; day++)
@@ -125,9 +152,9 @@ public sealed class WorkspaceWorkflowTests
         EnterFolder(_root);
         Invoke("Scan videos");
         WaitFor("Review workspace");
-        Find("Move selected files to Recycle Bin").AsButton().Click();
+        Find("Move selected files to Recovery").AsButton().Click();
         var dialog = WaitForWindow("Confirm deletion");
-        Assert.IsNotNull(dialog.FindFirstDescendant(cf => cf.ByName("Move selected files to the Recycle Bin?")));
+        Assert.IsNotNull(dialog.FindFirstDescendant(cf => cf.ByName("Move selected files to Recovery?")));
         Assert.IsNotNull(dialog.FindFirstDescendant(cf => cf.ByName("Cancel")));
         CaptureEvidence("confirmation", dialog);
         Keyboard.Press(VirtualKeyShort.ESCAPE);
@@ -139,7 +166,7 @@ public sealed class WorkspaceWorkflowTests
         Find("Delete selected files permanently").AsButton().Click();
         dialog = WaitForWindow("Confirm deletion");
         Assert.IsNotNull(dialog.FindFirstDescendant(cf => cf.ByName("Permanently delete selected files?")));
-        Assert.IsNotNull(dialog.FindFirstDescendant(cf => cf.ByName("This action cannot be undone. The files will not go to the Recycle Bin.")));
+        Assert.IsNotNull(dialog.FindFirstDescendant(cf => cf.ByName("This action cannot be undone. The files will not go to Recovery.")));
         dialog.FindFirstDescendant(cf => cf.ByName("Cancel"))!.AsButton().Invoke();
         WaitForWindowClosed("Confirm deletion");
         Assert.IsTrue(File.Exists(Path.Combine(_root, "2026-08-02 10-00-30 second.mkv")), "A confirmation-only test removed a fixture.");

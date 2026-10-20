@@ -2,7 +2,7 @@ namespace DuplicateVideoCleaner;
 
 internal sealed class DeletionConfirmationDialog : Form
 {
-    internal DeletionConfirmationDialog(IReadOnlyList<VideoCandidate> files, bool permanent, string formattedSize)
+    internal DeletionConfirmationDialog(IReadOnlyList<VideoCandidate> files, bool permanent, string formattedSize, int groupsWithoutSurvivors = 0)
     {
         Text = "Confirm deletion";
         Program.ApplyIcon(this);
@@ -11,7 +11,7 @@ internal sealed class DeletionConfirmationDialog : Form
         MinimizeBox = false;
         MaximizeBox = false;
         ShowInTaskbar = false;
-        ClientSize = new Size(640, 460);
+        ClientSize = new Size(720, 520);
         BackColor = AppTheme.WindowBack;
         ForeColor = AppTheme.Foreground;
         Font = AppTheme.UiFont;
@@ -24,16 +24,16 @@ internal sealed class DeletionConfirmationDialog : Form
         var header = new Panel { Dock = DockStyle.Fill, Padding = new Padding(24, 18, 24, 14), BackColor = permanent ? AppTheme.DangerMuted : AppTheme.AccentMuted };
         var mode = new Label
         {
-            Text = permanent ? "PERMANENT REMOVAL" : "RECYCLE BIN",
+            Text = permanent ? "PERMANENT REMOVAL" : "APP RECOVERY",
             Dock = DockStyle.Top,
             Height = 23,
             Font = new Font(AppTheme.UiFont, FontStyle.Bold),
             ForeColor = permanent ? AppTheme.DangerText : Color.FromArgb(151, 202, 255),
-            AccessibleName = permanent ? "Mode: Permanent deletion" : "Mode: Recycle Bin"
+            AccessibleName = permanent ? "Mode: Permanent deletion" : "Mode: Recovery"
         };
         var title = new Label
         {
-            Text = permanent ? "Permanently delete selected files?" : "Move selected files to the Recycle Bin?",
+            Text = permanent ? "Permanently delete selected files?" : "Move selected files to Recovery?",
             Dock = DockStyle.Fill,
             Font = new Font(AppTheme.UiFont.FontFamily, 16, FontStyle.Bold),
             TextAlign = ContentAlignment.MiddleLeft
@@ -51,16 +51,21 @@ internal sealed class DeletionConfirmationDialog : Form
         var consequence = new Label
         {
             Text = permanent
-                ? "This action cannot be undone. The files will not go to the Recycle Bin."
-                : "The files can be restored later from the Recycle Bin.",
+                ? "This action cannot be undone. The files will not go to Recovery."
+                : "Restore from Activity > Recovery. Storage is freed only after permanent deletion.",
             AutoSize = true,
             ForeColor = permanent ? AppTheme.DangerText : AppTheme.MutedForeground,
             Margin = new Padding(0, 12, 0, 12)
         };
         var previewCard = new Panel { Dock = DockStyle.Fill, Padding = new Padding(14), BackColor = AppTheme.CardBack, AccessibleName = "Selected file preview" };
-        var preview = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, TabStop = false, BorderStyle = BorderStyle.None, AccessibleName = "Files selected for deletion" };
-        foreach (var file in files.Take(6)) preview.Items.Add(file.RelativePath);
-        if (files.Count > 6) preview.Items.Add($"…and {files.Count - 6} more file(s)");
+        if (groupsWithoutSurvivors > 0)
+        {
+            consequence.Text += $"\nWarning: All files are selected in {groupsWithoutSurvivors} group(s). No file will remain in those groups.";
+            consequence.ForeColor = AppTheme.DangerText;
+        }
+        consequence.MaximumSize = new Size(650, 0);
+        var preview = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, TabStop = true, HorizontalScrollbar = true, BorderStyle = BorderStyle.None, AccessibleName = "All files selected for deletion", AccessibleDescription = "Use the arrow keys to review every selected path." };
+        foreach (var file in files) preview.Items.Add(file.FullPath);
         previewCard.Controls.Add(preview);
         body.Controls.Add(summaryRow, 0, 0);
         body.Controls.Add(consequence, 0, 1);
@@ -73,10 +78,10 @@ internal sealed class DeletionConfirmationDialog : Form
         var actions = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.RightToLeft, BackColor = AppTheme.SidebarBack };
         var confirm = new Button
         {
-            Text = permanent ? "Delete permanently" : "Move to Recycle Bin",
+            Text = permanent ? "Delete permanently" : "Move to Recovery",
             AutoSize = true,
             DialogResult = DialogResult.OK,
-            AccessibleDescription = permanent ? "Permanently deletes the selected files" : "Moves the selected files to the Recycle Bin"
+            AccessibleDescription = permanent ? "Permanently deletes the selected files" : "Moves the selected files to app Recovery"
         };
         var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
         actions.Controls.Add(confirm);

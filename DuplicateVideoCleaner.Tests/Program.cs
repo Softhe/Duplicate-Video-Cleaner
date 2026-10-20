@@ -1,6 +1,7 @@
 using DuplicateVideoCleaner;
 
 if (MetadataRegressionTests.TryRunFixture(args, out var fixtureExit)) return fixtureExit;
+if (args.Length > 0 && args[0] == "--measure-performance") return await PerformanceMeasurements.RunAsync(args);
 
 var tests = new List<(string Name, Func<Task> Run)>
 {
@@ -14,6 +15,7 @@ var tests = new List<(string Name, Func<Task> Run)>
     ("settings validation and persistence", Sync(SettingsValidationAndPersistence)),
     ("concurrent settings saves remain readable", ConcurrentSettingsSaves),
     ("metadata parsing", Sync(MetadataParsing)),
+    ("long media duration display", Sync(LongMediaDuration)),
     ("confidence levels", Sync(ConfidenceLevels)),
     ("metadata cache invalidation key", Sync(CacheInvalidationKey)),
     ("dry run CSV and text", Sync(DryRunOutputs)),
@@ -120,6 +122,13 @@ static void MetadataParsing()
     Equal(MetadataProbeStatus.Failed, MetadataProbe.Parse("{}").Status);
 }
 
+static void LongMediaDuration()
+{
+    var metadata = new MediaMetadata(TimeSpan.FromHours(25) + TimeSpan.FromMilliseconds(123), 640, 480, MetadataProbeStatus.Available);
+    Equal("25:00:00.123", metadata.DurationText);
+    Equal("Unavailable", new MediaMetadata(null, null, null, MetadataProbeStatus.Unavailable).DurationText);
+}
+
 static async Task ConcurrentSettingsSaves()
 {
     var root = Path.Combine(Path.GetTempPath(), "dvc-settings-" + Guid.NewGuid().ToString("N"));
@@ -168,7 +177,7 @@ static void DryRunOutputs() => WithFolder(root =>
     var context = new DryRunContext(root, 60, KeepMode.Oldest, false, [new DryRunRow(1, reviewed, true)]);
     var csv = DryRunExporter.BuildCsv(context);
     Assert(csv.Contains("\"" + candidate.FullPath.Replace("\"", "\"\"") + "\""), "CSV path was not escaped.");
-    Assert(DryRunExporter.BuildText(context).Contains("estimated reclaimable: 123 B"), "Text summary is incomplete.");
+    Assert(DryRunExporter.BuildText(context).Contains("selected size: 123 B"), "Text summary is incomplete.");
     var result = DryRunExporter.Export(root, context, new DateTimeOffset(2026, 8, 2, 1, 2, 3, TimeSpan.Zero));
     Assert(result.Errors.Count == 0 && File.Exists(result.CsvPath) && File.Exists(result.TextPath), "Export files were not created.");
     Assert(!Directory.EnumerateFiles(root, "*.tmp").Any(), "Atomic export temporary file remained.");

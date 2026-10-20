@@ -23,6 +23,7 @@ public sealed class MainForm : Form
     private readonly Button _selectAllButton = new() { Text = "All", AutoSize = true, AccessibleName = "Select all files" };
     private readonly Button _selectNoneButton = new() { Text = "None", AutoSize = true, AccessibleName = "Clear all selections" };
     private readonly Button _openLogButton = new() { Text = "Open cleanup log", AutoSize = true, AccessibleName = "Open cleanup log" };
+    private readonly Button _recoveryButton = new() { Text = "Recovery…", AutoSize = true, AccessibleName = "Open recovery" };
     private readonly Label _scanStatus = new() { AutoSize = true, Text = "Choose a folder to begin.", ForeColor = AppTheme.MutedForeground, AccessibleName = "Scan status: Choose a folder to begin" };
     private readonly Label _reviewSummary = new() { AutoSize = true, Font = new Font(AppTheme.UiFont, FontStyle.Bold), AccessibleName = "Review summary" };
     private readonly Label _operationStatus = new() { AutoSize = true, ForeColor = AppTheme.MutedForeground, AccessibleName = "Review status" };
@@ -37,10 +38,21 @@ public sealed class MainForm : Form
     private readonly SidebarButton _reviewNav = new("  Review", "Review workspace, Control 2");
     private readonly SidebarButton _activityNav = new("  Activity", "Activity workspace, Control 3");
     private readonly List<DuplicateGroupCard> _cards = [];
+    private const int ReviewPageSize = 25;
+    private int _reviewPageIndex;
+    private readonly Button _previousGroups = new() { Text = "Previous groups", AutoSize = true, AccessibleName = "Previous review page" };
+    private readonly Button _nextGroups = new() { Text = "Next groups", AutoSize = true, AccessibleName = "Next review page" };
+    private readonly Label _groupPageStatus = new() { AutoSize = true, Margin = new Padding(8), AccessibleName = "Review page" };
+    private readonly FlowLayoutPanel _groupPager = new() { AutoSize = true, Dock = DockStyle.Top, WrapContents = false };
     private readonly HashSet<string> _selectedPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ReviewedVideo> _reviewed = new(StringComparer.OrdinalIgnoreCase);
     private readonly SettingsService _settingsService = new();
     private readonly MetadataProbe _metadataProbe = new();
+    private readonly SettingsSaveQueue _settingsQueue;
+    private bool _settingsFlushed;
+    private bool _savingBeforeClose;
+    private ReviewSession? _session;
+    private ReviewSession Session => _session is not null && ReferenceEquals(_session.Groups, _groups) ? _session : _session = new ReviewSession(_groups, _selectedPaths, _scanContext, _reviewed);
     private Control _scanPage = null!;
     private Control _reviewPage = null!;
     private Control _activityPage = null!;
@@ -49,10 +61,15 @@ public sealed class MainForm : Form
     private bool _busy;
     private ScanContext? _scanContext;
     private CancellationTokenSource? _scanCancellation;
+    private CancellationTokenSource? _exportCancellation;
+    private readonly Button _cancelExportButton = new() { Text = "Cancel export", AutoSize = true, Visible = false, AccessibleName = "Cancel export" };
     private bool _closeWhenIdle;
 
-    public MainForm()
+    public MainForm() : this(null) { }
+
+    internal MainForm(Action<AppSettings>? settingsWriter)
     {
+        _settingsQueue = new SettingsSaveQueue(settingsWriter ?? _settingsService.Save);
         Text = "Duplicate Video Cleaner";
         Program.ApplyIcon(this);
         StartPosition = FormStartPosition.CenterScreen;
@@ -65,7 +82,7 @@ public sealed class MainForm : Form
 
         _keepMode.Items.AddRange(["Oldest", "Newest"]);
         _keepMode.SelectedIndex = 0;
-        _deletionMode.Items.AddRange(["Recycle Bin", "Permanent"]);
+        _deletionMode.Items.AddRange(["Recovery", "Permanent"]);
         _deletionMode.SelectedIndex = 0;
         RestoreSettings(_settingsService.Load());
 
@@ -80,7 +97,8 @@ public sealed class MainForm : Form
         _cancelScanButton.Click += (_, _) => CancelScan();
         _rescanButton.Click += async (_, _) => await ScanAsync();
         _clearButton.Click += (_, _) => ClearResults();
-        _exportButton.Click += (_, _) => ExportDryRun();
+        _exportButton.Click += async (_, _) => await ExportDryRunAsync();
+        _cancelExportButton.Click += (_, _) => _exportCancellation?.Cancel();
         _deleteButton.Click += async (_, _) => await DeleteSelectedAsync();
         _selectSuggestedButton.Click += (_, _) => SetSuggestedSelection();
         _selectAllButton.Click += (_, _) => SetAllSelections(true);
@@ -90,20 +108,40 @@ public sealed class MainForm : Form
         _reviewNav.Click += (_, _) => Navigate(WorkspacePage.Review);
         _activityNav.Click += (_, _) => Navigate(WorkspacePage.Activity);
         _openLogButton.Click += (_, _) => OpenCleanupLog();
+        _recoveryButton.Click += (_, _) =>
+        {
+            if (_busy) return;
+            var root = _scanContext?.Root ?? _folderText.Text.Trim();
+            if (!Directory.Exists(root)) { SetScanStatus("Choose an existing folder before opening Recovery."); return; }
+            using var dialog = new RecoveryDialog(root);
+            dialog.ShowDialog(this);
+        };
         _cardHost.SizeChanged += (_, _) => ResizeCardWidths();
         _activityHost.SizeChanged += (_, _) => ResizeActivityWidths();
         Shown += (_, _) => AppTheme.EnableDarkTitleBar(this);
-        FormClosing += (_, e) =>
+        FormClosing += async (_, e) =>
         {
             if (_busy)
             {
                 e.Cancel = true;
                 _closeWhenIdle = true;
                 if (_scanCancellation is not null) CancelScan();
+                else if (_exportCancellation is not null) { _exportCancellation.Cancel(); _operationStatus.Text = "Cancelling export before closing…"; }
                 else _operationStatus.Text = "Waiting for removal results before closing…";
                 return;
             }
+            if (_settingsFlushed) return;
+            e.Cancel = true;
+            if (_savingBeforeClose) return;
+            _savingBeforeClose = true;
             SaveSettingsSafe();
+            Enabled = false;
+            await _settingsQueue.FlushAsync();
+            await Task.Yield();
+            if (_settingsQueue.LastError is { } settingsError)
+                MessageBox.Show(this, $"Preferences could not be saved. Your current files and recovery data are unaffected.\n\n{settingsError.Message}", "Preferences were not saved", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _settingsFlushed = true;
+            Close();
         };
     }
 
@@ -186,6 +224,7 @@ public sealed class MainForm : Form
     private Control BuildReviewPage()
     {
         var page = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(28, 24, 28, 16), RowCount = 3, ColumnCount = 1, AccessibleName = "Review workspace" };
+        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -209,6 +248,13 @@ public sealed class MainForm : Form
         toolbar.Controls.Add(_reviewProgress, 2, 0);
         toolbar.Controls.Add(_operationStatus, 0, 1);
         toolbar.SetColumnSpan(_operationStatus, 3);
+        _groupPager.Controls.AddRange([_previousGroups, _groupPageStatus, _nextGroups]);
+        _previousGroups.Click += (_, _) => { if (!_busy && _reviewPageIndex > 0) { _reviewPageIndex--; BuildCards(); } };
+        _nextGroups.Click += (_, _) => { if (!_busy && (_reviewPageIndex + 1) * ReviewPageSize < _groups.Count) { _reviewPageIndex++; BuildCards(); } };
+        toolbar.Controls.Add(_groupPager, 0, 2);
+        toolbar.SetColumnSpan(_groupPager, 3);
+        toolbar.SizeChanged += (_, _) => _operationStatus.MaximumSize =
+            new Size(Math.Max(1, toolbar.ClientSize.Width - toolbar.Padding.Horizontal - _operationStatus.Margin.Horizontal), 0);
 
         page.Controls.Add(top, 0, 0);
         page.Controls.Add(toolbar, 0, 1);
@@ -219,6 +265,7 @@ public sealed class MainForm : Form
     private Control BuildActivityPage()
     {
         var page = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(32, 26, 32, 24), RowCount = 3, ColumnCount = 1, AccessibleName = "Activity workspace" };
+        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -226,8 +273,11 @@ public sealed class MainForm : Form
         heading.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         heading.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         heading.Controls.Add(PageHeading("Session activity", "Scans, exports, and removals from this run of the app."), 0, 0);
-        heading.Controls.Add(_openLogButton, 1, 0);
-        var note = new Label { Text = "Activity resets when the app closes. Cleanup outcomes are also written to DuplicateCleanupLog.txt in the selected folder.", AutoSize = true, MaximumSize = new Size(850, 0), ForeColor = AppTheme.MutedForeground, Margin = new Padding(0, 18, 0, 12), AccessibleName = "Activity is current session only" };
+        var activityActions = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        activityActions.Controls.AddRange([_recoveryButton, _openLogButton]);
+        heading.Controls.Add(activityActions, 1, 0);
+        var note = new Label { Text = "Activity shows the latest 200 entries and resets when the app closes. Cleanup outcomes are also written to DuplicateCleanupLog.txt in the selected folder.", AutoSize = true, MaximumSize = new Size(850, 0), ForeColor = AppTheme.MutedForeground, Margin = new Padding(0, 18, 0, 12), AccessibleName = "Activity is current session only; latest 200 entries" };
+        page.SizeChanged += (_, _) => note.MaximumSize = new Size(Math.Max(1, page.ClientSize.Width - page.Padding.Horizontal - note.Margin.Horizontal), 0);
         page.Controls.Add(heading, 0, 0);
         page.Controls.Add(note, 0, 1);
         page.Controls.Add(_activityHost, 0, 2);
@@ -247,7 +297,9 @@ public sealed class MainForm : Form
         mode.Controls.Add(new Label { Text = "Removal method", AutoSize = true, ForeColor = AppTheme.MutedForeground, Margin = new Padding(0, 8, 7, 0) });
         mode.Controls.Add(_deletionMode);
         content.Controls.Add(mode, 1, 0);
-        content.Controls.Add(_exportButton, 2, 0);
+        var exportActions = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        exportActions.Controls.AddRange([_exportButton, _cancelExportButton]);
+        content.Controls.Add(exportActions, 2, 0);
         content.Controls.Add(_deleteButton, 3, 0);
         _actionDock.Controls.Add(content);
     }
@@ -289,7 +341,7 @@ public sealed class MainForm : Form
         if (!_busy && e.Data?.GetData(DataFormats.FileDrop) is string[] paths && paths.FirstOrDefault(Directory.Exists) is { } directory) _folderText.Text = directory;
     }
 
-    internal async Task ScanAsync()
+    internal async Task ScanAsync(Func<string, IEnumerable<string>, CancellationToken, string?>? diagnosticWriter = null)
     {
         if (_busy) return;
         var root = _folderText.Text.Trim();
@@ -303,6 +355,7 @@ public sealed class MainForm : Form
         }
 
         _groups = [];
+        _reviewPageIndex = 0;
         _scanContext = null;
         _reviewed.Clear();
         _selectedPaths.Clear();
@@ -318,27 +371,45 @@ public sealed class MainForm : Form
             var keep = _keepMode.SelectedIndex == 0 ? KeepMode.Oldest : KeepMode.Newest;
             var context = new ScanContext(Path.GetFullPath(root), threshold, keep, _subfolders.Checked);
             _scanContext = context;
+            var scanClock = Stopwatch.StartNew();
             var scan = await Task.Run(() => DuplicateScanner.ScanDetailed(context.Root, threshold, context.IncludeSubfolders, keep, cancellation.Token));
             _groups = scan.Groups;
+            var enumerationTime = scanClock.Elapsed;
             cancellation.Token.ThrowIfCancellationRequested();
-            TryAppendLog($"SCAN | Folder={context.Root} | Threshold={threshold}s | Keep={keep} | Subfolders={context.IncludeSubfolders} | Groups={_groups.Count} | Files={_groups.Sum(g => g.Files.Count)}");
-            foreach (var diagnostic in scan.Diagnostics)
-            {
-                TryAppendLog($"SCAN SKIPPED | {diagnostic.Path} | {diagnostic.Message}");
+            SetScanStatus("Saving scan diagnostics…");
+            var messages = scan.Diagnostics.Select(diagnostic => $"SCAN SKIPPED | {diagnostic.Path} | {diagnostic.Message}")
+                .Prepend($"SCAN | Folder={context.Root} | Threshold={threshold}s | Keep={keep} | Subfolders={context.IncludeSubfolders} | Groups={_groups.Count} | Files={_groups.Sum(g => g.Files.Count)}");
+            var loggingError = await Task.Run(() => (diagnosticWriter ?? AppendScanDiagnostics)(context.LogPath, messages, cancellation.Token));
+            if (loggingError is not null) AddActivity("Scan logging failed", loggingError, false);
+            foreach (var diagnostic in scan.Diagnostics.Take(199))
                 AddActivity("Scan entry skipped", $"{diagnostic.Path}: {diagnostic.Message}", false);
-            }
+            if (scan.Diagnostics.Count > 199)
+                AddActivity("Additional scan entries skipped", $"{scan.Diagnostics.Count - 199} additional entries were skipped; see the cleanup log for all diagnostics.", false);
             var skipped = scan.Diagnostics.Count == 0 ? string.Empty : $" {scan.Diagnostics.Count} entries were skipped; see Activity.";
+            if (loggingError is not null) skipped += " Scan diagnostics could not be fully saved; see Activity.";
             if (_groups.Count == 0)
             {
                 SetScanStatus($"No potential duplicate groups found within {threshold} seconds.{skipped}");
-                AddActivity("Scan complete", "No duplicate groups were found." + skipped, scan.Diagnostics.Count == 0);
+                AddActivity("Scan complete", "No duplicate groups were found." + skipped, scan.Diagnostics.Count == 0 && loggingError is null);
                 return;
             }
 
-            SetScanStatus("Reading duration and resolution metadata…");
+            SetScanStatus("Copying media to an isolated workspace and reading metadata. Temporary disk space is required…");
             if (_metadataProbe.IsAvailable)
             {
-                var metadata = await _metadataProbe.ProbeManyAsync(_groups.SelectMany(group => group.Files), cancellation.Token);
+                var progress = new LatestMetadataProgress();
+                using var progressTimer = new System.Windows.Forms.Timer { Interval = 150 };
+                progressTimer.Tick += (_, _) =>
+                {
+                    if (progress.Latest is { } update && !cancellation.IsCancellationRequested)
+                        SetScanStatus($"{update.Phase}: {update.CompletedFiles}/{update.TotalFiles} files · {FormatSize(update.BytesCopied)} / {FormatSize(update.TotalBytes)} copied · {update.Elapsed.TotalSeconds:0.0}s");
+                };
+                progressTimer.Start();
+                var candidates = _groups.SelectMany(group => group.Files).ToArray();
+                var metadata = await _metadataProbe.ProbeManyAsync(candidates, cancellation.Token, progress);
+                progressTimer.Stop();
+                if (_metadataProbe.LastBatchMetrics is { } metrics)
+                    AddActivity("Scan performance", $"Enumeration {enumerationTime.TotalSeconds:0.00}s; setup {metrics.Setup.TotalSeconds:0.00}s; copying {metrics.Staging.TotalSeconds:0.00}s; parsing {metrics.Parsing.TotalSeconds:0.00}s; metadata elapsed {metrics.Elapsed.TotalSeconds:0.00}s; {metrics.CacheHits}/{metrics.Files} cached; {FormatSize(metrics.StagedBytes)} staged. Copying and parsing times sum worker durations.", true);
                 foreach (var group in _groups)
                 {
                     var referenceMetadata = metadata[group.SuggestedKeep.FullPath];
@@ -357,6 +428,13 @@ public sealed class MainForm : Form
                         _reviewed[file.FullPath] = new ReviewedVideo(file, new MediaMetadata(null, null, null, MetadataProbeStatus.Unavailable, "ffprobe was not found"), DuplicateConfidence.Low, ReferenceEquals(file, group.SuggestedKeep));
             }
 
+            var metadataWarnings = _reviewed.Values.Where(video => !string.IsNullOrWhiteSpace(video.Metadata.Error) || video.Metadata.Status is MetadataProbeStatus.Failed or MetadataProbeStatus.TimedOut).ToArray();
+            foreach (var warning in metadataWarnings.Take(20))
+                AddActivity("Metadata needs attention", $"{warning.Candidate.RelativePath}: {warning.Metadata.Error ?? warning.Metadata.Status.ToString()}", false);
+            if (metadataWarnings.Length > 20)
+                AddActivity("Additional metadata warnings", $"{metadataWarnings.Length - 20} additional files need attention. Metadata confidence is shown in Review.", false);
+            if (metadataWarnings.Length > 0) skipped += $" Metadata warnings affect {metadataWarnings.Length} file(s); see Activity and Review.";
+
             foreach (var group in _groups)
                 foreach (var file in group.Files.Where(file => !ReferenceEquals(file, group.SuggestedKeep))) _selectedPaths.Add(file.FullPath);
             BuildCards();
@@ -364,7 +442,7 @@ public sealed class MainForm : Form
             _operationStatus.Text = context.Description + (_metadataProbe.IsAvailable
                 ? string.Empty : " · Metadata unavailable: ffprobe was not found. Time-based review remains available.") + skipped;
             _operationStatus.AccessibleName = _operationStatus.Text;
-            AddActivity("Scan complete", $"Found {_groups.Count} duplicate group(s) containing {_groups.Sum(group => group.Files.Count)} files.{skipped}", scan.Diagnostics.Count == 0);
+            AddActivity("Scan complete", $"Found {_groups.Count} duplicate group(s) containing {_groups.Sum(group => group.Files.Count)} files.{skipped}", scan.Diagnostics.Count == 0 && loggingError is null && metadataWarnings.Length == 0);
             Navigate(WorkspacePage.Review);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -402,8 +480,13 @@ public sealed class MainForm : Form
     private void BuildCards()
     {
         ClearCards();
+        _reviewPageIndex = Math.Clamp(_reviewPageIndex, 0, Math.Max(0, (_groups.Count - 1) / ReviewPageSize));
+        _groupPager.Visible = _groups.Count > ReviewPageSize;
+        _previousGroups.Enabled = !_busy && _reviewPageIndex > 0;
+        _nextGroups.Enabled = !_busy && (_reviewPageIndex + 1) * ReviewPageSize < _groups.Count;
+        _groupPageStatus.Text = $"Groups {_reviewPageIndex * ReviewPageSize + 1}–{Math.Min(_groups.Count, (_reviewPageIndex + 1) * ReviewPageSize)} of {_groups.Count}";
         _cardHost.SuspendLayout();
-        foreach (var group in _groups.Reverse())
+        foreach (var group in _groups.Skip(_reviewPageIndex * ReviewPageSize).Take(ReviewPageSize).Reverse())
         {
             DuplicateGroupCard? card = null;
             card = new DuplicateGroupCard(group, _reviewed, path => _selectedPaths.Contains(path), SelectionChanged,
@@ -411,16 +494,16 @@ public sealed class MainForm : Form
                 {
                     foreach (var file in group.Files)
                     {
-                        if (suggested && !ReferenceEquals(file, group.SuggestedKeep)) _selectedPaths.Add(file.FullPath);
-                        else _selectedPaths.Remove(file.FullPath);
+                        Session.SetSelected(file, suggested && !ReferenceEquals(file, group.SuggestedKeep));
                     }
                     card!.RefreshSelectionState();
                     UpdateSelectionStatus();
-                });
+                }, () => Session.GroupSelection(group.Number));
             _cards.Add(card);
             _cardHost.Controls.Add(card);
             _cardHost.Controls.SetChildIndex(card, 0);
         }
+        _cards.Reverse();
         _cardHost.ResumeLayout();
         ResizeCardWidths();
         UpdateSelectionStatus();
@@ -436,25 +519,24 @@ public sealed class MainForm : Form
     private void SelectionChanged(VideoCandidate file, bool selected)
     {
         if (_busy) return;
-        if (selected) _selectedPaths.Add(file.FullPath); else _selectedPaths.Remove(file.FullPath);
+        Session.SetSelected(file, selected);
         foreach (var card in _cards) card.RefreshSelectionState();
         UpdateSelectionStatus();
     }
 
-    private List<VideoCandidate> SelectedFiles() => _groups.SelectMany(group => group.Files).Where(file => _selectedPaths.Contains(file.FullPath)).ToList();
+    private List<VideoCandidate> SelectedFiles() => Session.SelectedFiles();
 
     private void SetSuggestedSelection()
     {
-        _selectedPaths.Clear();
         foreach (var group in _groups)
-            foreach (var file in group.Files.Where(file => !ReferenceEquals(file, group.SuggestedKeep))) _selectedPaths.Add(file.FullPath);
+            foreach (var file in group.Files) Session.SetSelected(file, !ReferenceEquals(file, group.SuggestedKeep));
         RefreshCardsAndSummary();
     }
 
     private void SetAllSelections(bool selected)
     {
-        _selectedPaths.Clear();
-        if (selected) foreach (var file in _groups.SelectMany(group => group.Files)) _selectedPaths.Add(file.FullPath);
+        foreach (var group in _groups)
+            foreach (var file in group.Files) Session.SetSelected(file, selected);
         RefreshCardsAndSummary();
     }
 
@@ -470,7 +552,8 @@ public sealed class MainForm : Form
         var selected = SelectedFiles();
         if (selected.Count == 0) return;
         var permanent = _deletionMode.SelectedIndex == 1;
-        using var confirmation = new DeletionConfirmationDialog(selected, permanent, FormatSize(selected.Sum(file => file.Size)));
+        var groupsWithoutSurvivors = _groups.Count(group => group.Files.All(file => _selectedPaths.Contains(file.FullPath)));
+        using var confirmation = new DeletionConfirmationDialog(selected, permanent, FormatSize(selected.Sum(file => file.Size)), groupsWithoutSurvivors);
         if (confirmation.ShowDialog(this) != DialogResult.OK) return;
         if (!CanWriteLog(out var logError))
         {
@@ -507,29 +590,11 @@ public sealed class MainForm : Form
 
     internal void ReconcileRemoval(RemovalResult result)
     {
-        if (_scanContext is null) throw new InvalidOperationException("No completed scan is available.");
-        foreach (var path in result.RemovedPaths) { _selectedPaths.Remove(path); _reviewed.Remove(path); }
-        var rebuilt = new List<DuplicateGroup>();
-        foreach (var group in _groups)
-        {
-            var remaining = group.Files.Where(file => !result.RemovedPaths.Contains(file.FullPath)).ToList();
-            if (remaining.Count < 2) continue;
-            var keep = remaining.Contains(group.SuggestedKeep) ? group.SuggestedKeep :
-                _scanContext.KeepMode == KeepMode.Newest ? remaining[^1] : remaining[0];
-            var referenceMetadata = _reviewed[keep.FullPath].Metadata;
-            foreach (var file in remaining)
-            {
-                var reviewed = _reviewed[file.FullPath];
-                _reviewed[file.FullPath] = reviewed with
-                {
-                    SuggestedKeep = ReferenceEquals(file, keep),
-                    Confidence = ConfidenceEvaluator.Evaluate(file, reviewed.Metadata, keep, referenceMetadata)
-                };
-            }
-            rebuilt.Add(new DuplicateGroup(rebuilt.Count + 1, remaining, keep));
-        }
-        _groups = rebuilt;
-        _selectedPaths.IntersectWith(_groups.SelectMany(group => group.Files).Select(file => file.FullPath));
+        var session = Session.Reconcile(result);
+        _groups = session.Groups;
+        _reviewed.Clear();
+        foreach (var (path, video) in session.Reviewed) _reviewed.Add(path, video);
+        _session = session;
         BuildCards();
     }
 
@@ -548,13 +613,13 @@ public sealed class MainForm : Form
 
     private void UpdateSelectionStatus()
     {
-        var selected = SelectedFiles();
-        var bytes = selected.Sum(file => file.Size);
-        _selectionSummary.Text = selected.Count == 0 ? "Nothing selected" : $"{selected.Count} file(s) · {FormatSize(bytes)}";
-        _selectionSummary.AccessibleName = selected.Count == 0 ? "Nothing selected" : $"{selected.Count} files selected, {FormatSize(bytes)}";
-        _reviewSummary.Text = $"{_groups.Count} group(s)   ·   {_groups.Sum(group => group.Files.Count)} files   ·   {selected.Count} selected   ·   {FormatSize(bytes)}";
-        _reviewSummary.AccessibleName = $"{_groups.Count} duplicate groups; {_groups.Sum(group => group.Files.Count)} files; {selected.Count} selected; {FormatSize(bytes)} selected size";
-        _deleteButton.Enabled = selected.Count > 0 && !_busy;
+        var selected = Session;
+        var bytes = selected.SelectedBytes;
+        _selectionSummary.Text = selected.SelectedCount == 0 ? "Nothing selected" : $"{selected.SelectedCount} file(s) · {FormatSize(bytes)}";
+        _selectionSummary.AccessibleName = selected.SelectedCount == 0 ? "Nothing selected" : $"{selected.SelectedCount} files selected, {FormatSize(bytes)}";
+        _reviewSummary.Text = $"{_groups.Count} group(s)   ·   {selected.FileCount} files   ·   {selected.SelectedCount} selected   ·   {FormatSize(bytes)}";
+        _reviewSummary.AccessibleName = $"{_groups.Count} duplicate groups; {selected.FileCount} files; {selected.SelectedCount} selected; {FormatSize(bytes)} selected size";
+        _deleteButton.Enabled = selected.SelectedCount > 0 && !_busy;
         _exportButton.Enabled = _groups.Count > 0 && !_busy;
         _reviewNav.Enabled = _groups.Count > 0 && !_busy;
         UpdateDeleteButtonText();
@@ -564,7 +629,7 @@ public sealed class MainForm : Form
     {
         var permanent = _deletionMode.SelectedIndex == 1;
         _deleteButton.Text = permanent ? "Delete permanently…" : "Move selected…";
-        _deleteButton.AccessibleName = permanent ? "Delete selected files permanently" : "Move selected files to Recycle Bin";
+        _deleteButton.AccessibleName = permanent ? "Delete selected files permanently" : "Move selected files to Recovery";
         AppTheme.Primary(_deleteButton, permanent);
     }
 
@@ -591,6 +656,7 @@ public sealed class MainForm : Form
     private void SetBusy(bool busy, string? status = null)
     {
         _busy = busy;
+        _cancelExportButton.Visible = busy && _exportCancellation is not null;
         _cancelScanButton.Visible = busy && _scanCancellation is not null;
         _cancelScanButton.Enabled = _cancelScanButton.Visible;
         _scanProgress.Visible = busy && _page == WorkspacePage.Scan;
@@ -603,6 +669,8 @@ public sealed class MainForm : Form
         }
         if (!busy)
         {
+            _previousGroups.Enabled = _reviewPageIndex > 0;
+            _nextGroups.Enabled = (_reviewPageIndex + 1) * ReviewPageSize < _groups.Count;
             UpdateSelectionStatus();
             if (_closeWhenIdle) BeginInvoke(new Action(Close));
         }
@@ -619,21 +687,43 @@ public sealed class MainForm : Form
         return base.ProcessCmdKey(ref message, keyData);
     }
 
-    private void ExportDryRun()
+    private async Task ExportDryRunAsync()
     {
         if (_busy || _groups.Count == 0 || _scanContext is null) return;
         using var dialog = new FolderBrowserDialog { Description = "Choose a folder for the CSV and text dry-run reports", ShowNewFolderButton = true };
         if (Directory.Exists(_scanContext.Root)) dialog.InitialDirectory = _scanContext.Root;
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        var result = DryRunExporter.Export(dialog.SelectedPath, BuildDryRunContext());
-        _operationStatus.Text = result.Errors.Count == 0
-            ? $"Dry run exported: {Path.GetFileName(result.CsvPath)} and {Path.GetFileName(result.TextPath)}"
-            : $"Dry run partially exported. {string.Join("; ", result.Errors)}";
-        AddActivity(result.Errors.Count == 0 ? "Dry run exported" : "Dry run partially exported", result.Errors.Count == 0 ? dialog.SelectedPath : string.Join("; ", result.Errors), result.Errors.Count == 0);
+        await ExportDryRunToAsync(dialog.SelectedPath);
+    }
+
+    internal async Task ExportDryRunToAsync(string destination,
+        Func<string, DryRunContext, CancellationToken, ExportResult>? export = null)
+    {
+        if (_busy || _groups.Count == 0 || _scanContext is null) return;
+        var context = BuildDryRunContext();
+        using var cancellation = new CancellationTokenSource();
+        _exportCancellation = cancellation;
+        SetBusy(true, "Exporting dry run…");
+        try
+        {
+            var result = await Task.Run(() => export is null
+                ? DryRunExporter.Export(destination, context, cancellationToken: cancellation.Token)
+                : export(destination, context, cancellation.Token));
+            _operationStatus.Text = result.Errors.Count == 0
+                ? $"Dry run exported: {Path.GetFileName(result.CsvPath)} and {Path.GetFileName(result.TextPath)}"
+                : $"Dry run partially exported. {string.Join("; ", result.Errors)}";
+            if (cancellation.IsCancellationRequested)
+                _operationStatus.Text = $"Export cancelled. Completed reports: {(result.CsvPath is null ? 0 : 1) + (result.TextPath is null ? 0 : 1)}. Completed reports were retained.";
+            _operationStatus.AccessibleName = _operationStatus.Text;
+            AddActivity(cancellation.IsCancellationRequested ? "Export cancelled" : result.Errors.Count == 0 ? "Dry run exported" : "Dry run partially exported", result.Errors.Count == 0 ? destination : string.Join("; ", result.Errors), result.Errors.Count == 0);
+        }
+        catch (Exception ex) { _operationStatus.Text = $"Export failed: {ex.Message}"; AddActivity("Export failed", ex.Message, false); }
+        finally { _exportCancellation = null; SetBusy(false); }
     }
 
     private void AddActivity(string title, string detail, bool success)
     {
+        if (_activityHost.Controls.Count >= 200) _activityHost.Controls[^1].Dispose();
         var item = new ActivityItem(DateTime.Now, title, detail, success);
         _activityHost.Controls.Add(item);
         _activityHost.Controls.SetChildIndex(item, 0);
@@ -652,20 +742,53 @@ public sealed class MainForm : Form
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Could not open cleanup log", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
+    internal void ReportMaintenanceWarnings(IReadOnlyList<string> warnings)
+    {
+        foreach (var warning in warnings.Take(20)) AddActivity("Workspace cleanup needs attention", warning, false);
+        if (warnings.Count > 20)
+            AddActivity("Additional workspace cleanup warnings", $"{warnings.Count - 20} additional private workspace cleanup failures occurred. Temporary copies may remain until a later startup can remove them.", false);
+    }
+
     private void SetScanStatus(string text) { _scanStatus.Text = text; _scanStatus.AccessibleName = $"Scan status: {text}"; }
     private void ResizeCardWidths() { var width = Math.Max(300, _cardHost.ClientSize.Width - _cardHost.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 6); foreach (Control card in _cardHost.Controls) card.Width = width; }
     private void ResizeActivityWidths() { var width = Math.Max(300, _activityHost.ClientSize.Width - _activityHost.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 6); foreach (Control item in _activityHost.Controls) item.Width = width; }
     private bool CanWriteLog(out string error) { try { AppendLog(GetLogPath(), "DELETE SESSION START"); error = string.Empty; return true; } catch (Exception ex) { error = ex.Message; return false; } }
-    private void TryAppendLog(string message) { try { AppendLog(GetLogPath(), message); } catch (Exception ex) { SetScanStatus($"Scan completed, but logging failed: {ex.Message}"); } }
+    internal static string? AppendScanDiagnostics(string logPath, IEnumerable<string> messages, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(Path.GetFullPath(logPath))!);
+            using var stream = FileSnapshot.OpenAppendLog(logPath);
+            using var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true);
+            var count = 0;
+            foreach (var message in messages)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                writer.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | {message.Replace("\r", "\\r").Replace("\n", "\\n")}");
+                if (++count % 64 == 0) writer.Flush();
+            }
+            writer.Flush();
+            stream.Flush(true);
+            return null;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { return ex.Message; }
+    }
     internal string GetLogPath() => _scanContext?.LogPath ?? Path.Combine(_folderText.Text.Trim(), "DuplicateCleanupLog.txt");
 
     internal DryRunContext BuildDryRunContext()
     {
-        var context = _scanContext ?? throw new InvalidOperationException("Complete a scan before exporting results.");
-        var rows = _groups.SelectMany(group => group.Files.Select(file => new DryRunRow(group.Number, _reviewed[file.FullPath], _selectedPaths.Contains(file.FullPath)))).ToList();
-        return context.CreateDryRun(rows);
+        return Session.CreateDryRun();
     }
-    private static void AppendLog(string logPath, string message) => File.AppendAllText(logPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | {message}{Environment.NewLine}", new UTF8Encoding(false));
+    private static void AppendLog(string logPath, string message)
+    {
+        using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(Path.GetFullPath(logPath))!);
+        using var stream = FileSnapshot.OpenAppendLog(logPath);
+        using var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true);
+        writer.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | {message.Replace("\r", "\\r").Replace("\n", "\\n")}");
+        writer.Flush();
+        stream.Flush(true);
+    }
 
     internal static string FormatSize(long bytes)
     {
@@ -684,17 +807,20 @@ public sealed class MainForm : Form
         _subfolders.Checked = settings.IncludeSubfolders;
         _deletionMode.SelectedIndex = settings.PermanentDeletion ? 1 : 0;
         var desired = new Rectangle(settings.WindowX, settings.WindowY, settings.WindowWidth, settings.WindowHeight);
-        var visible = settings.WindowX >= 0 && settings.WindowY >= 0 && Screen.AllScreens.Any(screen => screen.WorkingArea.IntersectsWith(desired));
+        var visible = desired.Location != new Point(-1, -1) && HasReachableTitleBar(desired, Screen.AllScreens.Select(screen => screen.WorkingArea));
         if (visible) { StartPosition = FormStartPosition.Manual; Bounds = desired; } else Size = new Size(settings.WindowWidth, settings.WindowHeight);
         if (settings.Maximized) WindowState = FormWindowState.Maximized;
     }
+
+    internal static bool HasReachableTitleBar(Rectangle bounds, IEnumerable<Rectangle> workingAreas) =>
+        workingAreas.Any(area => { var visible = Rectangle.Intersect(area, new Rectangle(bounds.X, bounds.Y, bounds.Width, 32)); return visible.Width >= 100 && visible.Height >= 24; });
 
     private void SaveSettingsSafe()
     {
         try
         {
             var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-            _settingsService.Save(new AppSettings
+            _settingsQueue.Enqueue(new AppSettings
             {
                 LastFolder = _folderText.Text.Trim(), ThresholdSeconds = (int)_threshold.Value,
                 KeepMode = _keepMode.SelectedIndex == 1 ? KeepMode.Newest : KeepMode.Oldest,

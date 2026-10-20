@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -11,9 +11,9 @@
     <Description>Safely review and remove videos recorded close together.</Description>
     <AssemblyTitle>Duplicate Video Cleaner</AssemblyTitle>
     <Copyright>Copyright © 2026 Duplicate Video Cleaner contributors</Copyright>
-    <Version>1.1.1</Version>
-    <AssemblyVersion>1.1.1.0</AssemblyVersion>
-    <FileVersion>1.1.1.0</FileVersion>
+    <Version>1.1.2</Version>
+    <AssemblyVersion>1.1.2.0</AssemblyVersion>
+    <FileVersion>1.1.2.0</FileVersion>
     <ApplicationIcon>assets\DuplicateVideoCleaner.ico</ApplicationIcon>
   </PropertyGroup>
 </Project>

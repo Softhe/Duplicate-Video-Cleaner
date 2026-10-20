@@ -20,9 +20,10 @@ try {
     }
     $build = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'BuildRelease.ps1') -Raw
     if ($build -match 'releases/download/latest/') { throw 'Release script must use the pinned dependency.' }
-    foreach ($required in @('win-x64-portable', 'ZipFileExtensions', 'release\SHA256SUMS.txt', 'docs\screenshots')) {
+    foreach ($required in @('win-x64-setup.exe', 'release\SHA256SUMS.txt', 'docs\screenshots')) {
         if (-not $build.Contains($required)) { throw "Missing release packaging requirement: $required" }
     }
+    if ($build -match 'ZipFileExtensions|Compress-Archive') { throw 'Release delivery must contain only the setup EXE and checksums.' }
     if ($VerifyDependency) {
         $first = & (Join-Path $PSScriptRoot 'Get-FFmpeg.ps1')
         $second = & (Join-Path $PSScriptRoot 'Get-FFmpeg.ps1')

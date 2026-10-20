@@ -80,6 +80,7 @@ public static partial class DuplicateScanner
                         }
                         if ((attributes & FileAttributes.Directory) != 0)
                         {
+                            if (Path.GetFileName(path).Equals(".DuplicateVideoCleaner-Recovery", StringComparison.OrdinalIgnoreCase)) continue;
                             if (includeSubfolders) pending.Push(path);
                         }
                         else if (IsSupportedVideo(path)) candidates.Add(CreateCandidate(rootPath, path));
@@ -144,17 +145,17 @@ public static partial class DuplicateScanner
 
     private static VideoCandidate CreateCandidate(string rootPath, string path)
     {
-        var info = new FileInfo(path);
-        var effective = GetEffectiveTimestamp(info.Name, info.CreationTime);
-        return new VideoCandidate(
-            info.FullName,
-            Path.GetRelativePath(rootPath, info.FullName),
-            effective.Timestamp,
-            effective.Source,
-            info.Length,
-            info.CreationTimeUtc,
-            info.LastWriteTimeUtc,
-            FileSnapshot.GetIdentity(info.FullName));
+        var fullPath = Path.GetFullPath(path);
+        using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(fullPath)!);
+        using var source = WindowsProbeSandbox.OpenReadOnlyMedia(fullPath);
+        var snapshot = FileSnapshot.CaptureReadHandle(source.SafeFileHandle, fullPath);
+        var effective = GetEffectiveTimestamp(Path.GetFileName(fullPath), snapshot.CreationTimeUtc!.Value.ToLocalTime());
+        return snapshot with
+        {
+            RelativePath = Path.GetRelativePath(rootPath, fullPath),
+            Timestamp = effective.Timestamp,
+            TimestampSource = effective.Source
+        };
     }
 
     private static void AddGroupIfDuplicate(List<DuplicateGroup> groups, List<VideoCandidate> files, KeepMode keepMode)
