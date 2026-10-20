@@ -74,6 +74,65 @@ internal static class MetadataRegressionTests
         public void Report(MetadataProgress value) => report(value);
     }
 
+    private static async Task VerifyBatchSetupFailure(string executable, string root)
+    {
+        var tools = Directory.CreateDirectory(Path.Combine(root, "setup-failure-tools")).FullName;
+        var executableBase = Path.GetFileNameWithoutExtension(executable);
+        foreach (var path in Directory.EnumerateFiles(Path.GetDirectoryName(executable)!))
+        {
+            var name = Path.GetFileName(path);
+            if (Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase) ||
+                path.Equals(executable, StringComparison.OrdinalIgnoreCase) ||
+                name.Equals(executableBase + ".deps.json", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals(executableBase + ".runtimeconfig.json", StringComparison.OrdinalIgnoreCase))
+                File.Copy(path, Path.Combine(tools, name));
+        }
+        var probe = new MetadataProbe(Path.Combine(tools, Path.GetFileName(executable)));
+        var warmPath = Path.Combine(root, "setup-cached.mp4");
+        var pendingPath = Path.Combine(root, "setup-pending.mp4");
+        File.WriteAllText(warmPath, "cached original fixture");
+        File.WriteAllText(pendingPath, "pending original fixture");
+        VideoCandidate Capture(string path)
+        {
+            using var source = WindowsProbeSandbox.OpenReadOnlyMedia(path);
+            return FileSnapshot.CaptureReadHandle(source.SafeFileHandle, path);
+        }
+        var cached = Capture(warmPath);
+        var pending = Capture(pendingPath);
+        var before = await probe.ProbeManyAsync([cached]);
+        if (before[warmPath].Status != MetadataProbeStatus.Available)
+            throw new Exception("Setup-failure fixture could not warm its metadata cache: " + before[warmPath].Error);
+
+        // An exclusively locked dependency makes the real tool-copy setup fail
+        // before any parser starts, without changing the sandbox implementation.
+        var lockedDependency = Path.Combine(tools, "locked-fixture.dll");
+        File.WriteAllText(lockedDependency, "locked setup fixture");
+        MetadataProgress? lastProgress = null;
+        using (var locked = new FileStream(lockedDependency, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var result = await probe.ProbeManyAsync([cached, pending], progress: new InlineProgress(value => lastProgress = value));
+            if (result.Count != 2 || result[warmPath] != before[warmPath])
+                throw new Exception("Sandbox setup failure discarded validated cached metadata.");
+            if (result[pendingPath].Status != MetadataProbeStatus.Failed || result[pendingPath].Error?.StartsWith("Metadata isolation failed: ") != true)
+                throw new Exception("Sandbox setup failure did not return an explicit per-file isolation failure.");
+            if (probe.LastBatchMetrics is not { CacheHits: 1, StagedBytes: 0, Setup: var setup, Staging: var staging, Parsing: var parsing } ||
+                setup <= TimeSpan.Zero || staging != TimeSpan.Zero || parsing != TimeSpan.Zero)
+                throw new Exception("Sandbox setup failure did not complete its metrics without staging or parsing.");
+            if (lastProgress is not { Phase: "Complete", CompletedFiles: 2, TotalFiles: 2 })
+                throw new Exception("Sandbox setup failure did not complete batch progress.");
+            if (MetadataProbe.GetActiveProcessId(warmPath) is not null || MetadataProbe.GetActiveProcessId(pendingPath) is not null)
+                throw new Exception("Sandbox setup failure left an active parser.");
+            using var canceled = new CancellationTokenSource();
+            canceled.Cancel();
+            try { await probe.ProbeManyAsync([pending], canceled.Token); throw new Exception("Batch setup ignored cancellation."); }
+            catch (OperationCanceledException) { }
+        }
+        using (var source = WindowsProbeSandbox.OpenReadOnlyMedia(warmPath)) FileSnapshot.ValidateReadHandle(source.SafeFileHandle, cached);
+        using (var source = WindowsProbeSandbox.OpenReadOnlyMedia(pendingPath)) FileSnapshot.ValidateReadHandle(source.SafeFileHandle, pending);
+        if (File.ReadAllText(warmPath) != "cached original fixture" || File.ReadAllText(pendingPath) != "pending original fixture")
+            throw new Exception("Sandbox setup failure changed original media.");
+    }
+
     private static async Task VerifyAbandonedCleanup(string executable, string root)
     {
         var receipt = Path.Combine(root, "abandoned-root.txt");
@@ -147,6 +206,7 @@ internal static class MetadataRegressionTests
             }
             var executable = Path.Combine(AppContext.BaseDirectory, "DuplicateVideoCleaner.Tests.exe");
             await VerifyIsolation(executable, root);
+            await VerifyBatchSetupFailure(executable, root);
             var success = Path.Combine(root, "success.mp4");
             File.WriteAllText(success, "fixture");
             var metadata = await new MetadataProbe(executable).ProbeAsync(success);

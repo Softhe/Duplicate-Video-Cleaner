@@ -29,7 +29,7 @@ Other changes include incremental bounded cache eviction, serialized media copie
 The final local verification results are recorded below and in generated test evidence. BuildRelease produced a fresh setup EXE and self-contained payload with the hash-verified pinned FFmpeg archive. The external-app workflow ran that payload without installing it on this workstation.
 
 - Core/integration runner: 44/44 passed, including live AppContainer restrictions and snapshot/cache/recovery/archival/crash-cleanup regressions.
-- UI tests with the fresh candidate path supplied: 29/29 passed in about 35 seconds. This explicitly ran the installed-video acceptance test instead of its ordinary source-only skip.
+- UI tests with the fresh candidate path supplied: 30/30 passed in about 37 seconds after the PR review follow-up. This explicitly ran the installed-video acceptance test instead of its ordinary source-only skip.
 - Targeted export lifecycle tests exercise MainForm while a worker is blocked, require a UI timer heartbeat, cancel the active export, and verify deferred close and absence of partial reports.
 - Self-contained win-x64 publication succeeded.
 - The full local BuildRelease pipeline passed, including tests, pinned archive verification and setup compilation.
@@ -40,6 +40,7 @@ The final local verification results are recorded below and in generated test ev
 - Managed dependency vulnerability query reported no known vulnerable packages from nuget.org, including transitive packages. This does not assess native FFmpeg.
 - Independent review covered recovery/release changes and metadata/UI changes. It found and resolved the final owner-cleanup failure path before this decision.
 - New targeted tests verify background preference coalescing, deferred close while settings writes are blocked, responsive cancellation during actual scan diagnostic persistence, and canonical indexed selection accounting.
+- PR review follow-up tests verify that sandbox setup failure preserves validated cached results, returns explicit failures for pending files and never starts an unrestricted parser. Detail paging keeps its controls and keyboard focus through page boundaries. The settings guard rejects unchanged seeded files, and release acceptance requires independent previous/candidate settings-write evidence.
 - The native synthetic benchmark staged 33,557,988 bytes on a cold batch and none on its fully cached repeat. Warm setup, staging and parsing were zero; wall time was 1.57 ms in the descriptive run. See docs/PERFORMANCE.md for workload and limitations.
 
 Generated local evidence is under `validation/final-video.json`, `validation/performance.json` and `DuplicateVideoCleaner.UiTests/TestResults/final-ui.trx`. Generated evidence and historical machine-local validation files remain outside the source commit. CI retains its own qualification artifacts separately from public setup delivery.

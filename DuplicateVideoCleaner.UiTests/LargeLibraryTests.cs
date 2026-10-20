@@ -82,6 +82,41 @@ public sealed class LargeLibraryTests
         });
     }
 
+    [TestMethod]
+    public void DetailPagingPreservesFocusAndMovesItToAnEnabledButtonAtBoundaries()
+    {
+        RunOnUiThread(form =>
+        {
+            Populate(form, CreateGroups(1, 51));
+            Invoke(form, "BuildCards");
+            Invoke(form, "Navigate", WorkspacePage.Review);
+            Find<Button>(form, "Expand group 1").PerformClick();
+            Application.DoEvents();
+            var next = Find<Button>(form, "Next files in group 1");
+            var previous = Find<Button>(form, "Previous files in group 1");
+            Assert.IsTrue(next.Focus(), "The next-page button could not receive keyboard focus.");
+            Assert.IsTrue(next.Focused);
+            next.PerformClick();
+            Application.DoEvents();
+            Assert.AreSame(next, Find<Button>(form, "Next files in group 1"));
+            Assert.IsTrue(next.Focused, "Paging to an intermediate page lost keyboard focus.");
+            next.PerformClick();
+            Application.DoEvents();
+            Assert.IsFalse(next.Enabled);
+            Assert.IsTrue(previous.Focused, "The last page must move focus to the enabled previous button.");
+            Assert.IsTrue(Descendants(form).Any(control => control is Label && control.Text == "Files 51–51 of 51"));
+            previous.PerformClick();
+            Application.DoEvents();
+            Assert.IsTrue(previous.Focused, "Paging backward to an intermediate page lost keyboard focus.");
+            previous.PerformClick();
+            Application.DoEvents();
+            Assert.IsFalse(previous.Enabled);
+            Assert.IsTrue(next.Focused, "The first page must move focus to the enabled next button.");
+            Assert.AreSame(previous, Find<Button>(form, "Previous files in group 1"));
+            Assert.IsTrue(Descendants(form).Any(control => control is Label && control.Text == "Files 1–25 of 51"));
+        });
+    }
+
     private static IReadOnlyList<DuplicateGroup> CreateGroups(int count, int filesPerGroup) => Enumerable.Range(1, count).Select(number =>
     {
         var files = Enumerable.Range(0, filesPerGroup).Select(index => new VideoCandidate(

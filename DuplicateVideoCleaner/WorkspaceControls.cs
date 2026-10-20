@@ -233,6 +233,9 @@ internal sealed class DuplicateGroupCard : Panel
     private readonly Panel _detailsHost;
     private readonly Panel _detailRowsHost = new() { Dock = DockStyle.Fill };
     private readonly FlowLayoutPanel _detailPager = new() { Dock = DockStyle.Bottom, Height = 36, WrapContents = false };
+    private readonly Button _previousDetailPage;
+    private readonly Button _nextDetailPage;
+    private readonly Label _detailPageRange = new() { AutoSize = true, Margin = new Padding(8) };
     private const int DetailPageSize = 25;
     private int _detailPageIndex;
     private readonly Button _expandButton;
@@ -249,6 +252,11 @@ internal sealed class DuplicateGroupCard : Panel
         _isSelected = isSelected;
         _selectionTotals = selectionTotals;
         _selectionChanged = selectionChanged;
+        _previousDetailPage = SmallButton("Previous files", $"Previous files in group {group.Number}");
+        _nextDetailPage = SmallButton("Next files", $"Next files in group {group.Number}");
+        _previousDetailPage.Click += (_, _) => ChangeDetailPage(-1);
+        _nextDetailPage.Click += (_, _) => ChangeDetailPage(1);
+        _detailPager.Controls.AddRange([_previousDetailPage, _detailPageRange, _nextDetailPage]);
         Dock = DockStyle.Top;
         AutoSize = false;
         Height = SummaryHeight;
@@ -350,19 +358,24 @@ internal sealed class DuplicateGroupCard : Panel
             _detailRowsHost.Controls.Add(row);
         }
         _detailRowsHost.ResumeLayout();
-        foreach (Control control in _detailPager.Controls.Cast<Control>().ToArray()) control.Dispose();
         _detailPager.Visible = _group.Files.Count > DetailPageSize;
-        if (_group.Files.Count > DetailPageSize)
-        {
-            var previous = SmallButton("Previous files", $"Previous files in group {_group.Number}");
-            var next = SmallButton("Next files", $"Next files in group {_group.Number}");
-            previous.Enabled = first > 0;
-            next.Enabled = first + DetailPageSize < _group.Files.Count;
-            previous.Click += (_, _) => { _detailPageIndex--; BuildDetails(); UpdateExpandedHeight(); };
-            next.Click += (_, _) => { _detailPageIndex++; BuildDetails(); UpdateExpandedHeight(); };
-            _detailPager.Controls.AddRange([previous, new Label { AutoSize = true, Text = $"Files {first + 1}–{Math.Min(_group.Files.Count, first + DetailPageSize)} of {_group.Files.Count}", Margin = new Padding(8) }, next]);
-        }
+        _previousDetailPage.Enabled = first > 0;
+        _nextDetailPage.Enabled = first + DetailPageSize < _group.Files.Count;
+        _detailPageRange.Text = $"Files {first + 1}–{Math.Min(_group.Files.Count, first + DetailPageSize)} of {_group.Files.Count}";
         _built = true;
+    }
+
+    private void ChangeDetailPage(int delta)
+    {
+        var focused = _previousDetailPage.Focused ? _previousDetailPage : _nextDetailPage.Focused ? _nextDetailPage : null;
+        _detailPageIndex += delta;
+        BuildDetails();
+        UpdateExpandedHeight();
+        if (focused is not null)
+        {
+            var target = focused.Enabled ? focused : _previousDetailPage.Enabled ? _previousDetailPage : _nextDetailPage;
+            target.Focus();
+        }
     }
 
     private void UpdateExpandedHeight() => Height = LogicalToDeviceUnits(SummaryHeight) +

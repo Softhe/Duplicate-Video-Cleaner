@@ -10,6 +10,7 @@ try {
         payloadHashes = 'passed'; ffprobeFixture = 'passed'; isolatedAppLaunch = 'passed'
         uninstallCleanup = 'passed'; settingsPreserved = 'passed'; upgrade = 'passed'; installedUi = 'passed'
         sandboxedVideo = 'passed'; upgradeSettings = 'passed'
+        previousSettingsWritten = 'passed'; candidateSettingsWritten = 'passed'
         setupSha256 = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash
     }
     function Check-Rejected([string]$Expected) {
@@ -34,6 +35,12 @@ try {
     $record.upgradeSettings = 'not-exercised'
     Check-Rejected '*upgradeSettings*'
     $record.upgradeSettings = 'passed'
+    $record.previousSettingsWritten = 'not-exercised'
+    Check-Rejected '*previousSettingsWritten*'
+    $record.previousSettingsWritten = 'passed'
+    $record.candidateSettingsWritten = 'not-exercised'
+    Check-Rejected '*candidateSettingsWritten*'
+    $record.candidateSettingsWritten = 'passed'
     $record.setupSha256 = '0' * 64
     Check-Rejected '*exact setup EXE*'
     $record.setupSha256 = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash

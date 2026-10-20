@@ -1,5 +1,6 @@
 param([switch]$VerifyDependency)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'SettingsAcceptance.ps1')
 foreach ($script in Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.ps1') {
     $tokens = $null; $errors = $null
     [Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$tokens, [ref]$errors) | Out-Null
@@ -8,6 +9,16 @@ foreach ($script in Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.ps1') {
 $cache = Join-Path $env:TEMP ('dvc-cache-test-' + [guid]::NewGuid().ToString('N'))
 try {
     [IO.Directory]::CreateDirectory($cache) | Out-Null
+    $settingsFixture = Join-Path $cache 'settings.json'
+    [IO.File]::WriteAllText($settingsFixture, '{"ThresholdSeconds":123}')
+    [IO.File]::SetLastWriteTimeUtc($settingsFixture, [DateTime]::UtcNow.AddMinutes(-2))
+    $beforeWrite = (Get-Item -LiteralPath $settingsFixture).LastWriteTimeUtc
+    $unchangedRejected = $false
+    try { Assert-SettingsRewritten -Path $settingsFixture -BeforeWriteUtc $beforeWrite -ApplicationLabel 'No-op fixture' }
+    catch { if ($_.Exception.Message -notlike '*did not rewrite*') { throw }; $unchangedRejected = $true }
+    if (-not $unchangedRejected) { throw 'Seeded unchanged settings were accepted as a successful save.' }
+    [IO.File]::WriteAllText($settingsFixture, '{"ThresholdSeconds":123}')
+    Assert-SettingsRewritten -Path $settingsFixture -BeforeWriteUtc $beforeWrite -ApplicationLabel 'Saved fixture'
     $pin = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'FFmpeg.json') -Raw | ConvertFrom-Json
     [IO.File]::WriteAllText((Join-Path $cache $pin.archive), 'corrupted test fixture')
     $rejected = $false

@@ -4,6 +4,9 @@
 
 ### Review fixes - 2026-10-20
 
+- Preserved timestamp-based review and validated cached metadata when batch sandbox initialization fails, without an unrestricted parser fallback.
+- Required independent evidence that both installed versions rewrite their settings fixture during upgrade qualification.
+- Kept detail pagination controls alive across page changes and preserved keyboard focus, including transfers at page boundaries.
 - Added file/byte/elapsed metadata progress, per-phase measurements and a separate 30-minute staging deadline. Fully cached batches validate snapshots without initializing a sandbox.
 - Added ownership-checked startup cleanup of abandoned staging after 24 hours, protecting live processes, leased markers, unowned directories and reparse points.
 - Added confirmed archival of verified completed Recovery history older than 30 days, with opt-in archived-payload inspection and preservation of active/incomplete/unexpected entries. Archival deletes no media or metadata.

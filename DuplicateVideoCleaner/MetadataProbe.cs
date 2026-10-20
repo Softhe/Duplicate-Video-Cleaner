@@ -64,10 +64,22 @@ internal sealed class MetadataProbe
         {
             foreach (var file in pending) results[file.FullPath] = new(null, null, null, MetadataProbeStatus.Unavailable, "ffprobe was not found");
             LastBatchMetrics = new(candidates.Length, hits, 0, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, clock.Elapsed);
+            progress?.Report(new("Complete", null, 0, totalBytes, results.Count, candidates.Length, clock.Elapsed));
             return results;
         }
         var setupClock = Stopwatch.StartNew();
-        var sandbox = await Task.Run(() => new WindowsProbeSandbox(_ffprobePath!, cancellationToken), cancellationToken);
+        WindowsProbeSandbox sandbox;
+        try { sandbox = await Task.Run(() => new WindowsProbeSandbox(_ffprobePath!, cancellationToken), cancellationToken); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var file in pending)
+                results[file.FullPath] = new(null, null, null, MetadataProbeStatus.Failed, "Metadata isolation failed: " + ex.Message);
+            LastBatchMetrics = new(candidates.Length, hits, 0, setupClock.Elapsed, TimeSpan.Zero, TimeSpan.Zero, clock.Elapsed);
+            progress?.Report(new("Complete", null, 0, totalBytes, results.Count, candidates.Length, clock.Elapsed));
+            return results;
+        }
         var setup = setupClock.Elapsed;
         try
         {

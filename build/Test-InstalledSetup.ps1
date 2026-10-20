@@ -1,6 +1,7 @@
 #requires -Version 7.0
 param([Parameter(Mandatory)][string]$SetupPath, [string]$PreviousSetupPath, [switch]$RequireVirtualMachine, [switch]$RunUiTests, [string]$EvidencePath)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'SettingsAcceptance.ps1')
 $appId = '{792F3FDE-9875-4D6F-A27E-529BBC1600B1}_is1'
 $registryPaths = @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$appId", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$appId", "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$appId")
 if ($registryPaths | Where-Object { Test-Path -LiteralPath $_ }) { throw 'An existing installation was found. Acceptance testing refused to change it.' }
@@ -43,7 +44,9 @@ try {
     $previousVersion = $null
     if ($PreviousSetupPath) {
         $previousVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $install 'DuplicateVideoCleaner.exe')).FileVersion
+        $previousSettingsWrite = (Get-Item -LiteralPath $settingsFixture).LastWriteTimeUtc
         Save-SettingsWithInstalledApp (Join-Path $install 'DuplicateVideoCleaner.exe') $settingsFixture
+        Assert-SettingsRewritten -Path $settingsFixture -BeforeWriteUtc $previousSettingsWrite -ApplicationLabel 'Previous application'
         $oldSettings = Get-Content -LiteralPath $settingsFixture -Raw | ConvertFrom-Json
         if ($oldSettings.ThresholdSeconds -ne 123 -or $oldSettings.KeepMode -ne 1 -or -not $oldSettings.IncludeSubfolders) { throw 'Previous application did not save non-default upgrade settings.' }
     }
@@ -75,7 +78,9 @@ try {
     } finally { $writer.Dispose() }
     $probeOutput = & (Join-Path $install 'tools\ffprobe.exe') -v error -show_format -of json $fixture
     if ($LASTEXITCODE -ne 0 -or [double]($probeOutput | ConvertFrom-Json).format.duration -ne 1) { throw 'Installed ffprobe fixture check failed.' }
+    $candidateSettingsWrite = (Get-Item -LiteralPath $settingsFixture).LastWriteTimeUtc
     Save-SettingsWithInstalledApp (Join-Path $install 'DuplicateVideoCleaner.exe') $settingsFixture
+    Assert-SettingsRewritten -Path $settingsFixture -BeforeWriteUtc $candidateSettingsWrite -ApplicationLabel 'Candidate application'
     $savedSettings = Get-Content -LiteralPath $settingsFixture -Raw | ConvertFrom-Json
     if ($savedSettings.LastFolder -ne $sandbox -or $savedSettings.ThresholdSeconds -ne 123 -or $savedSettings.KeepMode -ne 1 -or -not $savedSettings.IncludeSubfolders) { throw 'Installed app did not preserve the settings fixture.' }
     if ($RunUiTests) {
@@ -103,6 +108,8 @@ try {
         installedUi = $(if ($RunUiTests) { 'passed' } else { 'not-exercised' })
         sandboxedVideo = $(if ($RunUiTests) { 'passed' } else { 'not-exercised' })
         upgradeSettings = $(if ($PreviousSetupPath) { 'passed' } else { 'not-exercised' })
+        previousSettingsWritten = $(if ($PreviousSetupPath) { 'passed' } else { 'not-exercised' })
+        candidateSettingsWritten = 'passed'
         previousVersion = $previousVersion; installedVersion = $installedVersion
         virtualMachine = [bool]$isVirtual; machineManufacturer = $computer.Manufacturer; machineModel = $computer.Model
     }
