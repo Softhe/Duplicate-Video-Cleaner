@@ -9,7 +9,7 @@ internal sealed record ExportResult(string? CsvPath, string? TextPath, IReadOnly
 
 internal static class DryRunExporter
 {
-    internal static ExportResult Export(string destination, DryRunContext context, DateTimeOffset? now = null)
+    internal static ExportResult Export(string destination, DryRunContext context, DateTimeOffset? now = null, CancellationToken cancellationToken = default)
     {
         try { Directory.CreateDirectory(destination); }
         catch (Exception ex) { return new ExportResult(null, null, [$"Destination: {ex.Message}"]); }
@@ -18,17 +18,24 @@ internal static class DryRunExporter
         var textPath = Path.Combine(destination, $"DuplicateVideoDryRun-{stamp}.txt");
         var errors = new List<string>();
         string? successfulCsv = null, successfulText = null;
-        try { AtomicWrite(csvPath, BuildCsv(context)); successfulCsv = csvPath; } catch (Exception ex) { errors.Add($"CSV: {ex.Message}"); }
-        try { AtomicWrite(textPath, BuildText(context)); successfulText = textPath; } catch (Exception ex) { errors.Add($"Text: {ex.Message}"); }
+        try { AtomicWrite(csvPath, writer => WriteCsv(writer, context, cancellationToken), cancellationToken); successfulCsv = csvPath; } catch (Exception ex) { errors.Add($"CSV: {ex.Message}"); }
+        try { AtomicWrite(textPath, writer => WriteText(writer, context, cancellationToken), cancellationToken); successfulText = textPath; } catch (Exception ex) { errors.Add($"Text: {ex.Message}"); }
         return new ExportResult(successfulCsv, successfulText, errors);
     }
 
     internal static string BuildCsv(DryRunContext context)
     {
-        var builder = new StringBuilder();
-        builder.AppendLine("Group,SelectedAction,SuggestedAction,Path,EffectiveTimestamp,TimestampSource,Duration,Resolution,Bytes,FormattedSize,Confidence,KeepRule,ThresholdSeconds,Scope");
+        using var writer = new StringWriter(CultureInfo.InvariantCulture);
+        WriteCsv(writer, context, CancellationToken.None);
+        return writer.ToString();
+    }
+
+    private static void WriteCsv(TextWriter builder, DryRunContext context, CancellationToken cancellationToken)
+    {
+        builder.WriteLine("Group,SelectedAction,SuggestedAction,Path,EffectiveTimestamp,TimestampSource,Duration,Resolution,Bytes,FormattedSize,Confidence,KeepRule,ThresholdSeconds,Scope");
         foreach (var row in context.Rows)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var video = row.Video;
             var values = new[]
             {
@@ -37,37 +44,55 @@ internal static class DryRunExporter
                 video.Metadata.DurationText, video.Metadata.ResolutionText, video.Candidate.Size.ToString(CultureInfo.InvariantCulture), MainForm.FormatSize(video.Candidate.Size),
                 video.Confidence.ToString(), context.KeepMode.ToString(), context.ThresholdSeconds.ToString(CultureInfo.InvariantCulture), context.IncludeSubfolders ? "Recursive" : "Current folder"
             };
-            builder.AppendLine(string.Join(',', values.Select(EscapeCsv)));
+            builder.WriteLine(string.Join(',', values.Select(EscapeCsv)));
         }
-        return builder.ToString();
     }
 
     internal static string BuildText(DryRunContext context)
     {
-        var selected = context.Rows.Where(row => row.Selected).ToList();
-        var builder = new StringBuilder();
-        builder.AppendLine("Duplicate Video Cleaner — Dry Run");
-        builder.AppendLine($"Folder: {context.Root}");
-        builder.AppendLine($"Settings: {context.ThresholdSeconds}s threshold; keep {context.KeepMode}; {(context.IncludeSubfolders ? "including subfolders" : "current folder only")}");
-        builder.AppendLine($"Groups: {context.Rows.Select(row => row.Group).Distinct().Count()}; files: {context.Rows.Count}; selected: {selected.Count}; estimated reclaimable: {MainForm.FormatSize(selected.Sum(row => row.Video.Candidate.Size))}");
-        foreach (var confidence in Enum.GetValues<DuplicateConfidence>()) builder.AppendLine($"{confidence} confidence: {context.Rows.Count(row => row.Video.Confidence == confidence)}");
-        builder.AppendLine();
-        foreach (var group in context.Rows.GroupBy(row => row.Group))
-        {
-            builder.AppendLine($"Group {group.Key}");
-            foreach (var row in group) builder.AppendLine($"  {(row.Selected ? "REMOVE" : "KEEP"),-6} [{row.Video.Confidence}] {row.Video.Candidate.RelativePath}");
-        }
-        return builder.ToString();
+        using var writer = new StringWriter(CultureInfo.InvariantCulture);
+        WriteText(writer, context, CancellationToken.None);
+        return writer.ToString();
     }
 
-    internal static string EscapeCsv(string value) => value.IndexOfAny([',', '"', '\r', '\n']) >= 0 ? $"\"{value.Replace("\"", "\"\"")}\"" : value;
+    private static void WriteText(TextWriter builder, DryRunContext context, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var selected = context.Rows.Where(row => row.Selected).ToList();
+        builder.WriteLine("Duplicate Video Cleaner — Dry Run");
+        builder.WriteLine($"Folder: {context.Root}");
+        builder.WriteLine($"Settings: {context.ThresholdSeconds}s threshold; keep {context.KeepMode}; {(context.IncludeSubfolders ? "including subfolders" : "current folder only")}");
+        builder.WriteLine($"Groups: {context.Rows.Select(row => row.Group).Distinct().Count()}; files: {context.Rows.Count}; selected: {selected.Count}; selected size: {MainForm.FormatSize(selected.Sum(row => row.Video.Candidate.Size))}");
+        foreach (var confidence in Enum.GetValues<DuplicateConfidence>()) builder.WriteLine($"{confidence} confidence: {context.Rows.Count(row => row.Video.Confidence == confidence)}");
+        builder.WriteLine();
+        foreach (var group in context.Rows.GroupBy(row => row.Group))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            builder.WriteLine($"Group {group.Key}");
+            foreach (var row in group)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                builder.WriteLine($"  {(row.Selected ? "REMOVE" : "KEEP"),-6} [{row.Video.Confidence}] {row.Video.Candidate.RelativePath}");
+            }
+        }
+    }
 
-    private static void AtomicWrite(string path, string contents)
+    internal static string EscapeCsv(string value)
+    {
+        // Spreadsheet programs interpret formula prefixes even in quoted CSV cells.
+        var first = value.AsSpan().TrimStart();
+        if (!first.IsEmpty && (first[0] is '=' or '+' or '-' or '@' || value[0] is '\t' or '\r' or '\n'))
+            value = "'" + value;
+        return value.IndexOfAny([',', '"', '\r', '\n']) >= 0 ? $"\"{value.Replace("\"", "\"\"")}\"" : value;
+    }
+    private static void AtomicWrite(string path, Action<TextWriter> write, CancellationToken cancellationToken)
     {
         var temporary = path + ".tmp";
         try
         {
-            File.WriteAllText(temporary, contents, new UTF8Encoding(false));
+            cancellationToken.ThrowIfCancellationRequested();
+            using (var writer = new StreamWriter(temporary, false, new UTF8Encoding(false))) write(writer);
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporary, path, false);
         }
         finally

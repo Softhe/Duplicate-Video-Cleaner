@@ -9,12 +9,11 @@ if ($appVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid application versio
 $compiler = (Get-Command $InnoSetupCompiler -ErrorAction Stop).Source
 $releaseRoot = Join-Path $root "release\DuplicateVideoCleaner-$appVersion-win-x64-payload"
 $setupPath = Join-Path $root "release\DuplicateVideoCleaner-$appVersion-win-x64-setup.exe"
-$portableName = "DuplicateVideoCleaner-$appVersion-win-x64-portable"
-$portablePath = Join-Path $root "release\$portableName.zip"
-if ((Test-Path -LiteralPath $releaseRoot) -or (Test-Path -LiteralPath $setupPath) -or (Test-Path -LiteralPath $portablePath)) {
+if ((Test-Path -LiteralPath $releaseRoot) -or (Test-Path -LiteralPath $setupPath)) {
     if (-not $Force) { throw 'Release output exists. Use -Force to replace generated release files.' }
 }
 $pin = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'FFmpeg.json') -Raw | ConvertFrom-Json
+& (Join-Path $PSScriptRoot 'Test-ReleaseAcceptance.ps1')
 dotnet run --project (Join-Path $root "DuplicateVideoCleaner.Tests\DuplicateVideoCleaner.Tests.csproj") -c $Configuration
 if ($LASTEXITCODE -ne 0) { throw "Unit/integration tests failed." }
 dotnet test (Join-Path $root "DuplicateVideoCleaner.UiTests\DuplicateVideoCleaner.UiTests.csproj") -c $Configuration
@@ -46,23 +45,15 @@ Copy-Item -LiteralPath (Join-Path $root "README.md"),(Join-Path $root "CHANGELOG
 Copy-Item -LiteralPath (Join-Path $ffmpegRoot.FullName "LICENSE.txt") -Destination (Join-Path $releaseRoot "FFMPEG-LICENSE.txt")
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'FFmpeg.json') -Destination (Join-Path $releaseRoot 'FFMPEG-BUILD.json')
 New-Item -ItemType Directory -Path (Join-Path $releaseRoot 'docs') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $root 'docs\PERFORMANCE.md') -Destination (Join-Path $releaseRoot 'docs')
 Copy-Item -LiteralPath (Join-Path $root 'docs\screenshots') -Destination (Join-Path $releaseRoot 'docs') -Recurse
 $checksums = Get-ChildItem -LiteralPath $releaseRoot -Recurse -File | Sort-Object FullName | ForEach-Object { "{0}  {1}" -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash, [System.IO.Path]::GetRelativePath($releaseRoot, $_.FullName) }
 [System.IO.File]::WriteAllLines((Join-Path $releaseRoot "SHA256SUMS.txt"), $checksums)
 & $compiler "/DAppVersion=$appVersion" "/DPayloadDirectory=$releaseRoot" "/O$(Join-Path $root 'release')" (Join-Path $PSScriptRoot 'Setup.iss')
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $setupPath)) { throw 'Setup compilation failed.' }
-if (Test-Path -LiteralPath $portablePath) { Remove-Item -LiteralPath $portablePath -Force }
-$zip = [IO.Compression.ZipFile]::Open($portablePath, [IO.Compression.ZipArchiveMode]::Create)
-try {
-    foreach ($file in Get-ChildItem -LiteralPath $releaseRoot -Recurse -File | Sort-Object FullName) {
-        $entry = "$portableName/" + [IO.Path]::GetRelativePath($releaseRoot, $file.FullName).Replace('\', '/')
-        [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $file.FullName, $entry, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
-    }
-} finally { $zip.Dispose() }
-$assetChecksums = @($setupPath, $portablePath) | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash, [IO.Path]::GetFileName($_) }
+$assetChecksums = @($setupPath) | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash, [IO.Path]::GetFileName($_) }
 [IO.File]::WriteAllLines((Join-Path $root 'release\SHA256SUMS.txt'), $assetChecksums)
 Write-Host "Setup created: $setupPath"
-Write-Host "Portable archive created: $portablePath"
 Write-Host "Setup SHA256: $((Get-FileHash -LiteralPath $setupPath -Algorithm SHA256).Hash)"
 } finally {
     $resolvedExtract = [IO.Path]::GetFullPath($extract)

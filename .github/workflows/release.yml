@@ -1,71 +1,96 @@
 name: release
 
 on:
+  pull_request:
   push:
     tags:
       - "v*"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: "9.0.x"
-
-      - name: Run service tests
-        run: dotnet run --project DuplicateVideoCleaner.Tests/DuplicateVideoCleaner.Tests.csproj -c Release
-
-      - name: Build app for UI tests
-        run: dotnet build DuplicateVideoCleaner/DuplicateVideoCleaner.csproj -c Release
-
-      - name: Run UI tests
-        run: dotnet test DuplicateVideoCleaner.UiTests/DuplicateVideoCleaner.UiTests.csproj -c Release
-
-      - name: Publish portable exe
-        run: dotnet publish DuplicateVideoCleaner/DuplicateVideoCleaner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o DuplicateVideoCleaner/publish
-
-      - name: Download FFmpeg shared build
+          global-json-file: global.json
+      - name: Validate release version
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip"
-          $archive = Join-Path $env:TEMP "ffmpeg-shared.zip"
-          Invoke-WebRequest -Uri $url -OutFile $archive
-          Write-Host "FFmpeg archive SHA256: $((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash)"
-          $extract = Join-Path $env:TEMP "dvc-ffmpeg"
-          if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
-          Expand-Archive -LiteralPath $archive -DestinationPath $extract
-          $root = Get-ChildItem -LiteralPath $extract -Directory | Select-Object -First 1
-          $version = & (Join-Path $root.FullName "bin\ffprobe.exe") -version
-          if ($version[0] -notmatch "ffprobe version n8\.1") { throw "Unexpected ffprobe version: $($version[0])" }
-          if ($version[2] -match "enable-(gpl|nonfree)") { throw "Unexpected FFmpeg variant: $($version[2])" }
-          echo "FFMPEG_ROOT=$($root.FullName)" >> $env:GITHUB_ENV
-
-      - name: Assemble portable folder
+          [xml]$project = Get-Content DuplicateVideoCleaner/DuplicateVideoCleaner.csproj
+          $version = [string]$project.Project.PropertyGroup.Version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid project version.' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$version") {
+            throw 'Release tag must match the project version.'
+          }
+      - name: Locate Inno Setup
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $releaseRoot = "release/DuplicateVideoCleaner-1.1.0-win-x64-portable"
-          New-Item -ItemType Directory -Path "$releaseRoot/tools" -Force | Out-Null
-          Copy-Item "DuplicateVideoCleaner/publish/DuplicateVideoCleaner.exe" $releaseRoot
-          Copy-Item "$env:FFMPEG_ROOT/bin/ffprobe.exe" "$releaseRoot/tools"
-          Get-ChildItem "$env:FFMPEG_ROOT/bin" -Filter "*.dll" | Copy-Item -Destination "$releaseRoot/tools"
-          Copy-Item "README.md","CHANGELOG.md","LICENSE.txt","FFMPEG-NOTICE.md" $releaseRoot
-          Copy-Item "$env:FFMPEG_ROOT/LICENSE.txt" "$releaseRoot/FFMPEG-LICENSE.txt"
-          $checksums = Get-ChildItem $releaseRoot -Recurse -File | Sort-Object FullName | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, [System.IO.Path]::GetRelativePath($releaseRoot, $_.FullName) }
-          [System.IO.File]::WriteAllLines("$releaseRoot/SHA256SUMS.txt", $checksums)
-          Compress-Archive $releaseRoot "release/DuplicateVideoCleaner-1.1.0-win-x64-portable.zip" -CompressionLevel Optimal
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler)) { throw 'Inno Setup 6 is required.' }
+          "DVC_ISCC=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Validate and build release with pinned FFmpeg
+        shell: pwsh
+        run: |
+          ./build/Test-BuildScripts.ps1
+          ./build/BuildRelease.ps1 -InnoSetupCompiler $env:DVC_ISCC
+      - name: Qualify exact setup in hosted VM
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $previous = Join-Path $env:RUNNER_TEMP 'DuplicateVideoCleaner-1.1.1-win-x64-setup.exe'
+          Invoke-WebRequest -Uri 'https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.1/DuplicateVideoCleaner-1.1.1-win-x64-setup.exe' -OutFile $previous
+          if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash -ne 'A7766E7FAE119E246ABB69F36A891581F714946832D386FB3064CF24CF243030') { throw 'Previous installer hash mismatch.' }
+          $setups = @(Get-ChildItem release/*-setup.exe)
+          if ($setups.Count -ne 1) { throw 'Expected one candidate setup.' }
+          ./build/Test-InstalledSetup.ps1 -SetupPath $setups[0].FullName -PreviousSetupPath $previous -RequireVirtualMachine -RunUiTests -EvidencePath release/installer-acceptance.json
+          ./build/Assert-ReleaseAcceptance.ps1 -SetupPath $setups[0].FullName -EvidencePath release/installer-acceptance.json
+      - name: Preserve qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qualification-evidence
+          path: |
+            release/installer-acceptance.json
+            release/acceptance-evidence/**
+            **/TestResults/*.trx
+          if-no-files-found: warn
+      - name: Stage setup and checksum
+        shell: pwsh
+        run: |
+          $setups = @(Get-ChildItem release/*-setup.exe)
+          if ($setups.Count -ne 1) { throw 'Expected exactly one setup EXE.' }
+          New-Item -ItemType Directory release/publish-assets | Out-Null
+          Copy-Item -LiteralPath $setups[0].FullName -Destination release/publish-assets
+          $line = '{0}  {1}' -f (Get-FileHash -LiteralPath $setups[0].FullName -Algorithm SHA256).Hash, $setups[0].Name
+          [IO.File]::WriteAllText((Join-Path $PWD 'release/publish-assets/SHA256SUMS.txt'), "$line`n")
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: setup
+          path: release/publish-assets/*
+          if-no-files-found: error
 
+  publish-release:
+    if: github.ref_type == 'tag'
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: setup
+          path: release
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          files: release/DuplicateVideoCleaner-1.1.0-win-x64-portable.zip
+          files: |
+            release/*-setup.exe
+            release/SHA256SUMS.txt
+          fail_on_unmatched_files: true
           generate_release_notes: true

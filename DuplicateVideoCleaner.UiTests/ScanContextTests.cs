@@ -7,6 +7,7 @@ namespace DuplicateVideoCleaner.UiTests;
 [DoNotParallelize]
 public sealed class ScanContextTests
 {
+    private static readonly Dictionary<string, int> ProbeProcesses = new(StringComparer.OrdinalIgnoreCase);
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
@@ -118,16 +119,49 @@ public sealed class ScanContextTests
         }, useProbeFixture: true);
     }
 
+    [TestMethod]
+    public void DiagnosticWriterRunsOffUiThreadAndCancelRemainsResponsive()
+    {
+        RunOnUiThread(async (form, root) =>
+        {
+            Find<TextBox>(form, "Video folder").Text = root;
+            using var entered = new ManualResetEventSlim();
+            var uiThread = Environment.CurrentManagedThreadId;
+            var writerThread = uiThread;
+            var scan = form.ScanAsync((path, messages, token) =>
+            {
+                writerThread = Environment.CurrentManagedThreadId;
+                entered.Set();
+                if (!token.WaitHandle.WaitOne(TimeSpan.FromSeconds(10))) throw new TimeoutException("Scan cancel did not reach diagnostics writer.");
+                token.ThrowIfCancellationRequested();
+                return null;
+            });
+            var heartbeat = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var timer = new System.Windows.Forms.Timer { Interval = 20 };
+            timer.Tick += (_, _) => { if (entered.IsSet) heartbeat.TrySetResult(); };
+            timer.Start();
+            await heartbeat.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreNotEqual(uiThread, writerThread);
+            Assert.IsFalse(scan.IsCompleted);
+            Find<Button>(form, "Cancel scan").PerformClick();
+            await scan.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.ThrowsException<InvalidOperationException>(() => form.BuildDryRunContext());
+            Assert.AreEqual(2, Directory.GetFiles(root, "*.mp4").Length);
+        });
+    }
+
     private static async Task WaitForProbe(string path)
     {
         var timer = System.Diagnostics.Stopwatch.StartNew();
-        while (!File.Exists(path + ".pid") && timer.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(20);
-        Assert.IsTrue(File.Exists(path + ".pid"), "Metadata process did not start.");
+        while (MetadataProbe.GetActiveProcessId(path) is null && timer.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(20);
+        var pid = MetadataProbe.GetActiveProcessId(path);
+        Assert.IsNotNull(pid, "Isolated metadata process did not start.");
+        ProbeProcesses[path] = pid.Value;
     }
 
     private static void AssertProbeExited(string path)
     {
-        var pid = int.Parse(File.ReadAllText(path + ".pid"));
+        Assert.IsTrue(ProbeProcesses.Remove(path, out var pid), "Isolated metadata process was not observed.");
         try
         {
             using var process = System.Diagnostics.Process.GetProcessById(pid);
@@ -161,7 +195,7 @@ public sealed class ScanContextTests
                 File.WriteAllText(Path.Combine(root, "2026-01-01 10-00-00 first.mp4"), "one");
                 File.WriteAllText(Path.Combine(root, "2026-01-01 10-00-01 second.mp4"), "two");
                 Environment.SetEnvironmentVariable("DVC_SETTINGS_PATH", Path.Combine(root, "settings.json"));
-                var fixture = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "DuplicateVideoCleaner.Tests", "bin", "Release", "net9.0-windows", "DuplicateVideoCleaner.Tests.exe"));
+                var fixture = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "DuplicateVideoCleaner.Tests", "bin", "Release", "net10.0-windows", "DuplicateVideoCleaner.Tests.exe"));
                 if (useRealMediaIfProvided && Environment.GetEnvironmentVariable("DVC_TEST_FFPROBE") is { Length: > 0 } realProbe)
                 {
                     var media = Environment.GetEnvironmentVariable("DVC_TEST_MEDIA") ?? throw new InvalidOperationException("DVC_TEST_MEDIA is required with DVC_TEST_FFPROBE.");

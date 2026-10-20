@@ -17,6 +17,12 @@ internal static class ScannerRegressionTests
             var result = DuplicateScanner.ScanDetailed(root, 60, true, KeepMode.Oldest);
             if (result.Groups.Single().Files.Any(f => f.CreationTimeUtc is null || f.LastWriteTimeUtc is null))
                 throw new Exception("Scan did not capture file timestamps.");
+            var recovery = Directory.CreateDirectory(Path.Combine(root, ".duplicatevideocleaner-recovery")).FullName;
+            File.WriteAllText(Path.Combine(recovery, "2025-02-01 10-00-00 recovered.mp4"), "a");
+            File.WriteAllText(Path.Combine(recovery, "2025-02-01 10-00-01 recovered.mp4"), "b");
+            if (DuplicateScanner.ScanDetailed(root, 60, true, KeepMode.Oldest).Groups.Count != 1)
+                throw new Exception("Recovery storage was included in recursive scan results.");
+            Directory.Delete(recovery, true);
             var link = Path.Combine(root, "loop");
             // Junctions need no symbolic-link privilege on Windows.
             var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe")

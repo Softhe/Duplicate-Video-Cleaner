@@ -10,7 +10,8 @@ internal sealed record MediaMetadata(
     MetadataProbeStatus Status,
     string? Error = null)
 {
-    internal string DurationText => Duration is null ? "Unavailable" : Duration.Value.ToString(@"hh\:mm\:ss\.fff");
+    internal string DurationText => Duration is null ? "Unavailable" :
+        FormattableString.Invariant($"{(long)Duration.Value.TotalHours:00}:{Duration.Value.Minutes:00}:{Duration.Value.Seconds:00}.{Duration.Value.Milliseconds:000}");
     internal string ResolutionText => Width is null || Height is null ? "Unavailable" : $"{Width}×{Height}";
 }
 
