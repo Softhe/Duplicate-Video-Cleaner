@@ -5,7 +5,7 @@ The application records per-scan measurements in Activity and displays metadata 
 ## Reproduce a synthetic comparison
 
 ```powershell
-./build/Measure-Performance.ps1 -FfprobePath ./release/DuplicateVideoCleaner-1.1.2-win-x64-payload/tools/ffprobe.exe -OutputPath ./validation/performance.json
+./build/Measure-Performance.ps1 -FfprobePath ./release/DuplicateVideoCleaner-1.1.2-win-x64-portable/tools/ffprobe.exe -OutputPath ./validation/performance.json
 ```
 
 This builds the existing test runner. It creates four copies of the checked-in one-second black video with valid 8 MiB MP4 free atoms, scans them and uses the supplied native ffprobe inside the production sandbox. It compares cold and warm metadata batches. A second comparison performs the same 1,000 selection changes over 10,000 in-memory candidates using full traversal and indexed counters. Both methods must produce identical final totals.
