@@ -8,13 +8,13 @@ Duplicate Video Cleaner groups `.mp4` and `.mkv` files by their timestamps and p
 
 ## Download
 
-Windows x64. The published 1.1.1 setup includes .NET and ffprobe. Version 1.1.2 is a local candidate pending release qualification; the source behavior below describes that candidate.
+Windows x64. The published 1.1.2 setup includes .NET and ffprobe.
 
 | Download | How to use it |
 | --- | --- |
-| [Setup EXE](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.1/DuplicateVideoCleaner-1.1.1-win-x64-setup.exe) | Run setup, then open the app from the Start menu. Installs for your Windows account without administrator rights. |
+| [Setup EXE](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.2/DuplicateVideoCleaner-1.1.2-win-x64-setup.exe) | Run setup, then open the app from the Start menu. Installs for your Windows account without administrator rights. |
 
-[Download checksums](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.1/SHA256SUMS.txt) · [Release notes](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/tag/v1.1.1)
+[Download checksums](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.2/SHA256SUMS.txt) · [Release notes](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/tag/v1.1.2)
 
 The published setup is unsigned. Preferences are saved in your Windows user profile. Uninstall through Windows Installed apps. Recovery media stays with its source folder and is not removed by uninstall.
 
