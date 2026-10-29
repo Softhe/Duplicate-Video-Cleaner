@@ -8,11 +8,12 @@ Duplicate Video Cleaner groups `.mp4` and `.mkv` files by their timestamps and p
 
 ## Download
 
-Windows x64. The published 1.1.2 setup includes .NET and ffprobe.
+Windows x64. Both 1.1.2 packages include .NET and ffprobe.
 
 | Download | How to use it |
 | --- | --- |
 | [Setup EXE](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.2/DuplicateVideoCleaner-1.1.2-win-x64-setup.exe) | Run setup, then open the app from the Start menu. Installs for your Windows account without administrator rights. |
+| [Portable ZIP](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.2/DuplicateVideoCleaner-1.1.2-win-x64-portable.zip) | Extract the entire archive, then run `DuplicateVideoCleaner.exe` from the extracted folder. Keep the bundled `tools` folder beside it. No installation is required. |
 
 [Download checksums](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.2/SHA256SUMS.txt) · [Release notes](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/tag/v1.1.2)
 
@@ -98,23 +99,26 @@ dotnet test DuplicateVideoCleaner.UiTests/DuplicateVideoCleaner.UiTests.csproj -
 ./build/BuildRelease.ps1
 ```
 
-`BuildRelease.ps1` runs the tests, publishes the self-contained app, verifies FFmpeg, and builds the setup EXE. Outputs are under `release`; `release/SHA256SUMS.txt` covers the setup EXE. Use `-Force` to replace generated outputs, or `-InnoSetupCompiler <path>` if `ISCC.exe` is not on PATH. The payload directory is intermediate build output.
+`BuildRelease.ps1` runs the tests, publishes the self-contained app, verifies FFmpeg, and builds the setup EXE and portable ZIP from the same payload. Outputs are under `release`; `release/SHA256SUMS.txt` covers both packages. Use `-Force` to replace generated outputs, or `-InnoSetupCompiler <path>` if `ISCC.exe` is not on PATH. The portable directory is also the source for the installer payload.
 
 The reviewed FFmpeg version, dated asset, expected SHA256, source revision, and build-system revision are in `build/FFmpeg.json`. Downloads and cached archives must match the expected hash before extraction. Upstream may retire dated assets; retain the verified cache for rebuilds. An unavailable or changed asset stops the build.
 
 ```powershell
 ./build/Test-BuildScripts.ps1 -VerifyDependency
 ./build/Test-InstalledSetup.ps1 -SetupPath ./release/DuplicateVideoCleaner-1.1.2-win-x64-setup.exe -PreviousSetupPath C:/path/to/1.1.1-setup.exe -RequireVirtualMachine -RunUiTests -EvidencePath ./release/installer-acceptance.json
+./build/Test-PortablePackage.ps1 -ArchivePath ./release/DuplicateVideoCleaner-1.1.2-win-x64-portable.zip -RequireVirtualMachine -RunUiTests -EvidencePath ./release/portable-acceptance.json
 ```
 
 The setup check refuses to run if this app is already installed. It uses a temporary install directory and isolated preferences, verifies the payload and bundled ffprobe, launches the app, and checks uninstall cleanup. Acceptance preserves its evidence. Public release requires VM acceptance of the exact setup checksum, upgrade, preferences, installed UI, and uninstall.
 
-Qualification also launches the previous installed application to save non-default settings before upgrading. It independently checks that both applications rewrite the settings fixture and that the expected values remain intact. It checks installed versions and requires the exact candidate app to scan the synthetic video fixture with its bundled ffprobe inside the production sandbox, show duration/resolution and High advisory confidence, and export CSV and text through the UI. The installed-video test requires `DVC_TEST_APP_PATH`; normal source-only test runs report it as skipped. Release qualification supplies that path and requires a fresh success record. Pull requests run the release validation workflow without publishing. CI retains qualification logs, test results and acceptance records separately from the public setup EXE and checksum.
+Portable qualification extracts the exact ZIP into a temporary directory, verifies its payload checksums and bundled documentation, launches ffprobe and the application with isolated preferences, and exercises the extracted application's sandboxed video-review and export flow. Release publication requires both packages to pass qualification. The manual `replace_release` workflow option is restricted to `main`; after successful qualification it replaces the existing release and updates its version tag to the qualified source commit.
+
+Qualification also launches the previous installed application to save non-default settings before upgrading. It independently checks that both applications rewrite the settings fixture and that the expected values remain intact. It checks installed versions and requires the exact candidate app to scan the synthetic video fixture with its bundled ffprobe inside the production sandbox, show duration/resolution and High advisory confidence, and export CSV and text through the UI. The installed-video test requires `DVC_TEST_APP_PATH`; normal source-only test runs report it as skipped. Release qualification supplies that path and requires a fresh success record. Pull requests run the release validation workflow without publishing. CI retains qualification logs, test results and acceptance records separately from the public setup EXE, portable ZIP, and checksum.
 
 To test real video metadata through the UI, use a valid MP4 fixture. Run this in a separate PowerShell session so test overrides end with that session:
 
 ```powershell
-$env:DVC_TEST_FFPROBE = (Resolve-Path release/DuplicateVideoCleaner-1.1.2-win-x64-payload/tools/ffprobe.exe).Path
+$env:DVC_TEST_FFPROBE = (Resolve-Path release/DuplicateVideoCleaner-1.1.2-win-x64-portable/tools/ffprobe.exe).Path
 $env:DVC_TEST_MEDIA = (Resolve-Path C:/path/to/sample.mp4).Path
 dotnet test DuplicateVideoCleaner.UiTests/DuplicateVideoCleaner.UiTests.csproj -c Release --filter MetadataSuccessReachesReviewConfidenceAndExport
 Remove-Item Env:DVC_TEST_FFPROBE, Env:DVC_TEST_MEDIA
@@ -130,7 +134,7 @@ The tool captures the app with PrintWindow, without including the desktop backgr
 
 The core checks cover scanning, settings, sandbox isolation, metadata, confidence, export, object-bound removal and Recovery. Review uses 25 groups per page and 25 file rows per detail page; selection and export include all pages. Activity keeps the latest 200 entries. The UI checks cover navigation, selection, scan cancellation, confirmation defaults, and review/export behavior.
 
-Selection uses indexed per-file and per-group totals, so toggling one file does not traverse the entire library. Reproduce the synthetic staging/cache and selection measurements with `./build/Measure-Performance.ps1 -FfprobePath ./release/DuplicateVideoCleaner-1.1.2-win-x64-payload/tools/ffprobe.exe`. See [performance measurements and their limits](docs/PERFORMANCE.md). The measurements use generated video and in-memory records, not private recordings or a claim about real-library throughput.
+Selection uses indexed per-file and per-group totals, so toggling one file does not traverse the entire library. Reproduce the synthetic staging/cache and selection measurements with `./build/Measure-Performance.ps1 -FfprobePath ./release/DuplicateVideoCleaner-1.1.2-win-x64-portable/tools/ffprobe.exe`. See [performance measurements and their limits](docs/PERFORMANCE.md). The measurements use generated video and in-memory records, not private recordings or a claim about real-library throughput.
 
 </details>
 

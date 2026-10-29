@@ -1,6 +1,13 @@
 # Changelog
 
-## 1.1.2 candidate - 2026-10-16
+## 1.1.2 - 2026-10-29
+
+### Recording dates, protected clips, and release packages
+
+- Protect clips without recording dates in their filenames, retain every protected clip, and suggest original-name copies only when duration, resolution, and exact byte size match.
+- Discover potential copies of protected clips across different timestamps and validate an unchanged protected survivor through removal of a matching original.
+- Prefer the earlier creation/modification time when a filename has no recording date. Name actual protected matches in Review and exports, summarize the weakest suggested removal's confidence, and clear protected-only groups after cleanup.
+- Publish both a setup EXE and portable ZIP with checksums. Qualify each exact package in a hosted Windows VM, including the extracted portable app's sandboxed video-review and export flow.
 
 ### Review fixes - 2026-10-20
 
@@ -30,14 +37,14 @@
 - Isolated metadata parsing in a zero-capability Windows AppContainer with a one-process job, CPU and memory limits, private media staging, clean environment, and fail-closed startup.
 - Paged review groups and expanded files, retained selections across all pages, and bounded Activity controls for large libraries.
 - Added exact-installer upgrade, settings, installed-UI, uninstall, and VM qualification checks. Public release requires evidence matching the setup SHA256.
-- Pinned GitHub Actions to reviewed commit IDs and limited generated delivery to the setup EXE plus checksum.
+- Pinned GitHub Actions to reviewed commit IDs and verified checksums for release delivery.
 
 - Bound permanent deletion to a validated Windows file handle and rejected active writers.
 - Restricted metadata probes to the file protocol, bounded output and subprocess lifetime, and included file identity in cache keys.
 - Neutralized spreadsheet formula prefixes in CSV escaping.
 - Kept review actions and metadata within the window when scan context is long.
 - Preserved total hours when displaying recordings longer than one day.
-- Routed GitHub release builds through pinned dependency verification, validated tag versions, and limited publication to setup EXE and checksum assets.
+- Routed GitHub release builds through pinned dependency verification, validated tag versions, and qualified release assets before publication.
 
 ## 1.1.1 — 2026-10-15
 

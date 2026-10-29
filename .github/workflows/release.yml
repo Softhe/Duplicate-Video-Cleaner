@@ -6,6 +6,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      replace_release:
+        description: Replace the existing version release after both packages pass qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -13,6 +18,9 @@ permissions:
 jobs:
   build-release:
     runs-on: windows-latest
+    timeout-minutes: 25
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup .NET
@@ -20,11 +28,13 @@ jobs:
         with:
           global-json-file: global.json
       - name: Validate release version
+        id: version
         shell: pwsh
         run: |
           [xml]$project = Get-Content DuplicateVideoCleaner/DuplicateVideoCleaner.csproj
           $version = [string]$project.Project.PropertyGroup.Version
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid project version.' }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$version") {
             throw 'Release tag must match the project version.'
           }
@@ -40,6 +50,7 @@ jobs:
           ./build/Test-BuildScripts.ps1
           ./build/BuildRelease.ps1 -InnoSetupCompiler $env:DVC_ISCC
       - name: Qualify exact setup in hosted VM
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -50,6 +61,13 @@ jobs:
           if ($setups.Count -ne 1) { throw 'Expected one candidate setup.' }
           ./build/Test-InstalledSetup.ps1 -SetupPath $setups[0].FullName -PreviousSetupPath $previous -RequireVirtualMachine -RunUiTests -EvidencePath release/installer-acceptance.json
           ./build/Assert-ReleaseAcceptance.ps1 -SetupPath $setups[0].FullName -EvidencePath release/installer-acceptance.json
+      - name: Qualify portable package in hosted VM
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem release/*-portable.zip)
+          if ($archives.Count -ne 1) { throw 'Expected exactly one portable ZIP.' }
+          ./build/Test-PortablePackage.ps1 -ArchivePath $archives[0].FullName -RequireVirtualMachine -RunUiTests -EvidencePath release/portable-acceptance.json
       - name: Preserve qualification evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -57,26 +75,30 @@ jobs:
           name: qualification-evidence
           path: |
             release/installer-acceptance.json
+            release/portable-acceptance.json
             release/acceptance-evidence/**
             **/TestResults/*.trx
           if-no-files-found: warn
-      - name: Stage setup and checksum
+      - name: Stage installer, portable package and checksums
         shell: pwsh
         run: |
           $setups = @(Get-ChildItem release/*-setup.exe)
-          if ($setups.Count -ne 1) { throw 'Expected exactly one setup EXE.' }
+          $archives = @(Get-ChildItem release/*-portable.zip)
+          if ($setups.Count -ne 1 -or $archives.Count -ne 1) { throw 'Expected one setup EXE and one portable ZIP.' }
           New-Item -ItemType Directory release/publish-assets | Out-Null
-          Copy-Item -LiteralPath $setups[0].FullName -Destination release/publish-assets
-          $line = '{0}  {1}' -f (Get-FileHash -LiteralPath $setups[0].FullName -Algorithm SHA256).Hash, $setups[0].Name
-          [IO.File]::WriteAllText((Join-Path $PWD 'release/publish-assets/SHA256SUMS.txt'), "$line`n")
+          $lines = foreach ($asset in @($setups[0], $archives[0])) {
+            Copy-Item -LiteralPath $asset.FullName -Destination release/publish-assets
+            '{0}  {1}' -f (Get-FileHash -LiteralPath $asset.FullName -Algorithm SHA256).Hash, $asset.Name
+          }
+          [IO.File]::WriteAllLines((Join-Path $PWD 'release/publish-assets/SHA256SUMS.txt'), $lines)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: setup
+          name: packages
           path: release/publish-assets/*
           if-no-files-found: error
 
   publish-release:
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || inputs.replace_release == true
     needs: build-release
     runs-on: ubuntu-latest
     permissions:
@@ -84,13 +106,31 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: setup
+          name: packages
           path: release
+      - name: Replace existing release when explicitly requested
+        if: inputs.replace_release == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ needs.build-release.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo 'Replacement releases must use main.' >&2
+            exit 1
+          fi
+          tag="v$RELEASE_VERSION"
+          gh release view "$tag" --repo "$GH_REPO" >/dev/null
+          gh release delete "$tag" --repo "$GH_REPO" --yes
+          gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$tag" -f sha="$GITHUB_SHA" -F force=true
       - name: Create GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          tag_name: v${{ needs.build-release.outputs.version }}
+          target_commitish: ${{ github.sha }}
           files: |
             release/*-setup.exe
+            release/*-portable.zip
             release/SHA256SUMS.txt
           fail_on_unmatched_files: true
           generate_release_notes: true

@@ -7,9 +7,10 @@ $root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $appVersion = [string]$project.Project.PropertyGroup.Version
 if ($appVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid application version.' }
 $compiler = (Get-Command $InnoSetupCompiler -ErrorAction Stop).Source
-$releaseRoot = Join-Path $root "release\DuplicateVideoCleaner-$appVersion-win-x64-payload"
+$releaseRoot = Join-Path $root "release\DuplicateVideoCleaner-$appVersion-win-x64-portable"
 $setupPath = Join-Path $root "release\DuplicateVideoCleaner-$appVersion-win-x64-setup.exe"
-if ((Test-Path -LiteralPath $releaseRoot) -or (Test-Path -LiteralPath $setupPath)) {
+$portablePath = "$releaseRoot.zip"
+if ((Test-Path -LiteralPath $releaseRoot) -or (Test-Path -LiteralPath $setupPath) -or (Test-Path -LiteralPath $portablePath)) {
     if (-not $Force) { throw 'Release output exists. Use -Force to replace generated release files.' }
 }
 $pin = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'FFmpeg.json') -Raw | ConvertFrom-Json
@@ -34,7 +35,7 @@ if (Test-Path -LiteralPath $releaseRoot) {
     if (-not $Force) { throw "Release directory already exists: $releaseRoot (use -Force to replace generated release artifacts)" }
     $expectedReleaseParent = [System.IO.Path]::GetFullPath((Join-Path $root "release"))
     $resolvedRelease = [System.IO.Path]::GetFullPath($releaseRoot)
-    if ([System.IO.Path]::GetDirectoryName($resolvedRelease) -ne $expectedReleaseParent -or [System.IO.Path]::GetFileName($resolvedRelease) -ne "DuplicateVideoCleaner-$appVersion-win-x64-payload") { throw "Refusing unexpected release cleanup target: $resolvedRelease" }
+    if ([System.IO.Path]::GetDirectoryName($resolvedRelease) -ne $expectedReleaseParent -or [System.IO.Path]::GetFileName($resolvedRelease) -ne "DuplicateVideoCleaner-$appVersion-win-x64-portable") { throw "Refusing unexpected release cleanup target: $resolvedRelease" }
     Remove-Item -LiteralPath $resolvedRelease -Recurse -Force
 }
 New-Item -ItemType Directory -Path (Join-Path $releaseRoot "tools") -Force | Out-Null
@@ -51,10 +52,13 @@ $checksums = Get-ChildItem -LiteralPath $releaseRoot -Recurse -File | Sort-Objec
 [System.IO.File]::WriteAllLines((Join-Path $releaseRoot "SHA256SUMS.txt"), $checksums)
 & $compiler "/DAppVersion=$appVersion" "/DPayloadDirectory=$releaseRoot" "/O$(Join-Path $root 'release')" (Join-Path $PSScriptRoot 'Setup.iss')
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $setupPath)) { throw 'Setup compilation failed.' }
-$assetChecksums = @($setupPath) | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash, [IO.Path]::GetFileName($_) }
+Compress-Archive -LiteralPath $releaseRoot -DestinationPath $portablePath -CompressionLevel Optimal -Force:$Force
+$assetChecksums = @($setupPath, $portablePath) | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash, [IO.Path]::GetFileName($_) }
 [IO.File]::WriteAllLines((Join-Path $root 'release\SHA256SUMS.txt'), $assetChecksums)
 Write-Host "Setup created: $setupPath"
 Write-Host "Setup SHA256: $((Get-FileHash -LiteralPath $setupPath -Algorithm SHA256).Hash)"
+Write-Host "Portable created: $portablePath"
+Write-Host "Portable SHA256: $((Get-FileHash -LiteralPath $portablePath -Algorithm SHA256).Hash)"
 } finally {
     $resolvedExtract = [IO.Path]::GetFullPath($extract)
     if ([IO.Path]::GetDirectoryName($resolvedExtract) -eq [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') -and [IO.Path]::GetFileName($resolvedExtract) -match '^dvc-ffmpeg-[a-f0-9]{32}$') {
