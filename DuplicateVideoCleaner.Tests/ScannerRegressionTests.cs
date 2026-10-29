@@ -2,6 +2,33 @@ using DuplicateVideoCleaner;
 
 internal static class ScannerRegressionTests
 {
+    internal static void CopiedFilesKeepOriginalDates()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dvc-copy-dates-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            var copiedAt = new DateTime(2026, 9, 20, 18, 54, 13, DateTimeKind.Utc);
+            var names = new[] { "sjukt sidestep prefire ramp.mp4", "snygg 4k d2 esplay.mp4", "xD.mp4" };
+            for (var i = 0; i < names.Length; i++)
+            {
+                var path = Path.Combine(root, names[i]);
+                File.WriteAllText(path, "fixture");
+                File.SetCreationTimeUtc(path, copiedAt.AddSeconds(i * 10));
+                File.SetLastWriteTimeUtc(path, new DateTime(2026, 3, 6 + i, 1, 8, 24, DateTimeKind.Utc));
+            }
+            var result = DuplicateScanner.ScanDetailed(root, 60, false, KeepMode.Oldest);
+            if (result.Groups.Count != 0)
+                throw new Exception("Unrelated clips were grouped by their new copy creation times.");
+            File.WriteAllText(Path.Combine(root, "Replay 2026-03-06 01-08-24.mp4"), "fixture");
+            var compared = DuplicateScanner.ScanDetailed(root, 60, false, KeepMode.Oldest).Groups.Single();
+            if (compared.Files.Where(file => file.IsProtected).Any(file =>
+                file.TimestampSource != TimestampSource.LastWriteTime || file.Timestamp != file.LastWriteTimeUtc!.Value.ToLocalTime()))
+                throw new Exception("Protected comparison candidates lost their original modification dates.");
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     internal static void CancellationAndSnapshots()
     {
         var root = Path.Combine(Path.GetTempPath(), "dvc-scan-" + Guid.NewGuid());

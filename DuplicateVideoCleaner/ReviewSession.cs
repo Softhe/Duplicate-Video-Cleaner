@@ -22,6 +22,8 @@ internal sealed class ReviewSession
         _selection = selection;
         _files = groups.SelectMany(group => group.Files).ToDictionary(file => file.FullPath, StringComparer.OrdinalIgnoreCase);
         _selection.IntersectWith(_files.Keys);
+        _selection.RemoveWhere(path => _files[path].IsProtected ||
+            reviewed.TryGetValue(path, out var video) && !video.CanRemove);
         SelectedBytes = _selection.Sum(path => _files[path].Size);
         foreach (var group in groups)
         {
@@ -38,6 +40,7 @@ internal sealed class ReviewSession
     internal void SetSelected(VideoCandidate file, bool selected)
     {
         if (!_files.TryGetValue(file.FullPath, out var canonical)) return;
+        if (selected && (canonical.IsProtected || Reviewed.TryGetValue(file.FullPath, out var video) && !video.CanRemove)) return;
         if (selected ? _selection.Add(file.FullPath) : _selection.Remove(file.FullPath))
         {
             var delta = selected ? canonical.Size : -canonical.Size;
@@ -60,7 +63,7 @@ internal sealed class ReviewSession
             var remaining = group.Files.Where(file => !result.RemovedPaths.Contains(file.FullPath)).ToArray();
             if (remaining.Length < 2) continue;
             var keep = remaining.Contains(group.SuggestedKeep) ? group.SuggestedKeep :
-                context.KeepMode == KeepMode.Newest ? remaining[^1] : remaining[0];
+                DuplicateScanner.ChooseKeeper(remaining, context.KeepMode);
             var reference = Reviewed[keep.FullPath].Metadata;
             foreach (var file in remaining)
             {
@@ -71,7 +74,9 @@ internal sealed class ReviewSession
                     Confidence = ConfidenceEvaluator.Evaluate(file, video.Metadata, keep, reference)
                 });
             }
-            rebuilt.Add(new(rebuilt.Count + 1, remaining, keep));
+            var rebuiltGroup = new DuplicateGroup(rebuilt.Count + 1, remaining, keep);
+            RenamedFilePolicy.Apply(rebuiltGroup, reviewed);
+            rebuilt.Add(rebuiltGroup);
         }
         return new ReviewSession(rebuilt, _selection, context, reviewed);
     }

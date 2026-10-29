@@ -8,6 +8,55 @@ namespace DuplicateVideoCleaner.UiTests;
 public sealed class ReviewImprovementTests
 {
     [TestMethod]
+    public void ProtectedComparisonNamesTheActualMatchAndUsesItsSize()
+    {
+        RunSta(() =>
+        {
+            VideoCandidate File(string name, long size, bool protect) => new(Path.Combine(Path.GetTempPath(), name), name,
+                DateTime.Now, TimestampSource.FileName, size, IsProtected: protect);
+            var keeper = File("first favorite.mp4", 200, true);
+            var match = File("second favorite.mp4", 100, true);
+            var original = File("Replay 2026-01-01 10-00-00.mp4", 100, false);
+            var group = new DuplicateGroup(1, [keeper, match, original], keeper);
+            var reviewed = group.Files.ToDictionary(file => file.FullPath, file => new ReviewedVideo(file,
+                new(TimeSpan.FromSeconds(file == keeper ? 10 : 20), 1920, 1080, MetadataProbeStatus.Available),
+                DuplicateConfidence.Low, file == keeper));
+            RenamedFilePolicy.Apply(group, reviewed);
+            using var row = new ReviewedFileRow(1, reviewed[original.FullPath], keeper, true, (_, _) => { });
+            StringAssert.Contains(row.AccessibleName!, "second favorite.mp4");
+            StringAssert.Contains(row.AccessibleName!, "Size comparison Exact match");
+            StringAssert.Contains(row.AccessibleName!, "Confidence High");
+            Assert.IsFalse(Descendants(row).OfType<Label>().Any(label => label.Text.Contains("Different size")));
+            StringAssert.Contains(DryRunExporter.BuildCsv(new(Path.GetTempPath(), 60, KeepMode.Oldest, false,
+                [new(1, reviewed[original.FullPath], true)])), match.FullPath);
+        });
+    }
+
+    [TestMethod]
+    public void GroupHeaderUsesWeakestSuggestionAndHandlesNoSuggestions()
+    {
+        RunSta(() =>
+        {
+            var files = Enumerable.Range(0, 3).Select(i => new VideoCandidate(Path.Combine(Path.GetTempPath(), $"badge-{i}.mp4"),
+                $"badge-{i}.mp4", DateTime.Now, TimestampSource.FileName, 1)).ToArray();
+            var group = new DuplicateGroup(1, files, files[0]);
+            var reviewed = files.ToDictionary(file => file.FullPath, file => new ReviewedVideo(file,
+                new(null, null, null, MetadataProbeStatus.Unavailable), file == files[2] ? DuplicateConfidence.Low : DuplicateConfidence.High, file == files[0]));
+            using (var card = new DuplicateGroupCard(group, reviewed, _ => false, (_, _) => { }, _ => { }))
+                Assert.AreEqual("Confidence: Low", Descendants(card).OfType<ConfidenceBadge>().Single().AccessibleName);
+            reviewed[files[2].FullPath] = reviewed[files[2].FullPath] with { Confidence = DuplicateConfidence.High };
+            using (var card = new DuplicateGroupCard(group, reviewed, _ => false, (_, _) => { }, _ => { }))
+                Assert.AreEqual("Confidence: High", Descendants(card).OfType<ConfidenceBadge>().Single().AccessibleName);
+            foreach (var file in files) reviewed[file.FullPath] = reviewed[file.FullPath] with { RequiresProtectedMatch = true };
+            using (var card = new DuplicateGroupCard(group, reviewed, _ => false, (_, _) => { }, _ => { }))
+            {
+                Assert.IsFalse(Descendants(card).OfType<ConfidenceBadge>().Any());
+                Assert.IsTrue(Descendants(card).Any(control => control.AccessibleName == "No removal suggested"));
+            }
+        });
+    }
+
+    [TestMethod]
     public void ExportWorkerKeepsUiResponsiveAndCancelRestoresReview()
     {
         ExerciseExportCancellation(closeWindow: false);

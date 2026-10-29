@@ -11,6 +11,56 @@ public sealed class ScanContextTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    public void RenamedProtectionReachesBulkSelectionRowsAndExport()
+    {
+        RunOnUiThread(async (form, root) =>
+        {
+            File.WriteAllText(Path.Combine(root, "favorite.mp4"), "one");
+            File.WriteAllText(Path.Combine(root, "another favorite.mp4"), "one");
+            File.WriteAllText(Path.Combine(root, "2026-01-01 10-00-02 unmatched.mp4"), "longer");
+            Find<TextBox>(form, "Video folder").Text = root;
+            await form.ScanAsync();
+            void AssertSelection()
+            {
+                var context = form.BuildDryRunContext();
+                Assert.AreEqual(5, context.Rows.Count);
+                Assert.AreEqual(2, context.Rows.Count(row => row.Video.Candidate.IsProtected));
+                Assert.AreEqual(2, context.Rows.Count(row => row.Selected));
+                Assert.IsTrue(context.Rows.Where(row => row.Selected).All(row => !row.Video.Candidate.IsProtected && row.Video.MatchesProtectedCopy));
+                Assert.IsTrue(context.Rows.Single(row => row.Video.SuggestedKeep).Video.Candidate.IsProtected);
+                StringAssert.Contains(DryRunExporter.BuildCsv(context), "Protected renamed clip");
+                StringAssert.Contains(DryRunExporter.BuildText(context), "No metadata match to a protected clip; kept");
+            }
+            AssertSelection();
+            Find<Button>(form, "Select all files").PerformClick();
+            AssertSelection();
+            Find<Button>(form, "Select all suggested removals").PerformClick();
+            AssertSelection();
+            Find<Button>(form, "Expand group 1").PerformClick();
+            Assert.IsFalse(Find<CheckBox>(form, "Group 1, select favorite.mp4 for removal").Enabled);
+            Assert.IsFalse(Find<CheckBox>(form, "Group 1, select another favorite.mp4 for removal").Enabled);
+            Assert.IsFalse(Find<CheckBox>(form, "Group 1, select 2026-01-01 10-00-02 unmatched.mp4 for removal").Enabled);
+            Find<Button>(form, "Clear selections in group 1").PerformClick();
+            Assert.AreEqual(0, form.BuildDryRunContext().Rows.Count(row => row.Selected));
+            Find<Button>(form, "Select suggested removals in group 1").PerformClick();
+            AssertSelection();
+        }, useProbeFixture: true);
+    }
+
+    [TestMethod]
+    public void RenamedProtectionWithoutMetadataSelectsNothing()
+    {
+        RunOnUiThread(async (form, root) =>
+        {
+            File.WriteAllText(Path.Combine(root, "favorite.mp4"), "one");
+            Find<TextBox>(form, "Video folder").Text = root;
+            await form.ScanAsync();
+            Find<Button>(form, "Select all files").PerformClick();
+            Assert.IsFalse(form.BuildDryRunContext().Rows.Any(row => row.Selected));
+        });
+    }
+
+    [TestMethod]
     public void MetadataSuccessReachesReviewConfidenceAndExport()
     {
         TestContext.WriteLine(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DVC_TEST_FFPROBE"))
