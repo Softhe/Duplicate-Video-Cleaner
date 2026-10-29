@@ -137,13 +137,14 @@ internal sealed class ReviewedFileRow : Panel
     internal ReviewedFileRow(int groupNumber, ReviewedVideo reviewed, VideoCandidate reference, bool selected, Action<VideoCandidate, bool> selectionChanged)
     {
         var file = reviewed.Candidate;
+        reference = reviewed.ProtectedReference ?? reference;
         _accessibleName = selectedState => BuildAccessibleName(groupNumber, reviewed, reference, selectedState);
-        _suggestedKeep = reviewed.SuggestedKeep;
+        _suggestedKeep = !reviewed.SuggestRemoval;
         AutoSize = true;
         Dock = DockStyle.Top;
         Padding = new Padding(12, 10, 12, 10);
         Margin = new Padding(0, 1, 0, 0);
-        BackColor = selected ? AppTheme.RemoveMuted : reviewed.SuggestedKeep ? AppTheme.KeepMuted : AppTheme.CardInsetBack;
+        BackColor = selected ? AppTheme.RemoveMuted : _suggestedKeep ? AppTheme.KeepMuted : AppTheme.CardInsetBack;
         AccessibleName = BuildAccessibleName(groupNumber, reviewed, reference, selected);
 
         var layout = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 3, RowCount = 2, BackColor = BackColor };
@@ -154,10 +155,11 @@ internal sealed class ReviewedFileRow : Panel
         _selection = new CheckBox
         {
             Checked = selected,
+            Enabled = reviewed.CanRemove,
             AutoSize = true,
             Margin = new Padding(0, 5, 12, 0),
             AccessibleName = $"Group {groupNumber}, select {file.RelativePath} for removal",
-            AccessibleDescription = reviewed.SuggestedKeep ? "Suggested keep file; select only to override the suggestion" : "Suggested duplicate file"
+            AccessibleDescription = reviewed.CanRemove ? reviewed.SuggestedKeep ? "Suggested keep file; select only to override the suggestion" : reviewed.RetentionText : reviewed.RetentionText
         };
         _selection.CheckedChanged += (_, _) =>
         {
@@ -177,24 +179,30 @@ internal sealed class ReviewedFileRow : Panel
         };
         var state = new Label
         {
-            Text = reviewed.SuggestedKeep ? "KEEP" : "REMOVE",
+            Text = file.IsProtected ? "PROTECTED" : reviewed.SuggestRemoval ? "REMOVE" : "KEEP",
             AutoSize = true,
             Padding = new Padding(7, 3, 7, 3),
-            ForeColor = reviewed.SuggestedKeep ? AppTheme.SuccessText : AppTheme.DangerText,
-            BackColor = reviewed.SuggestedKeep ? AppTheme.SuccessMuted : AppTheme.DangerMuted,
-            AccessibleName = reviewed.SuggestedKeep ? "Suggested action: Keep" : "Suggested action: Remove"
+            ForeColor = _suggestedKeep ? AppTheme.SuccessText : AppTheme.DangerText,
+            BackColor = _suggestedKeep ? AppTheme.SuccessMuted : AppTheme.DangerMuted,
+            AccessibleName = reviewed.SuggestRemoval ? "Suggested action: Remove" : "Suggested action: Keep"
         };
         var metadata = new Label
         {
             AutoSize = true,
             MaximumSize = new Size(1000, 0),
-            Text = $"{file.Timestamp:yyyy-MM-dd HH:mm:ss} · {(file.TimestampSource == TimestampSource.FileName ? "File name" : "Creation time")}   |   {reviewed.Metadata.DurationText}   |   {reviewed.Metadata.ResolutionText}   |   {MainForm.FormatSize(file.Size)}   |   {(file.Size == reference.Size ? "Exact size" : "Different size")}",
+            Text = $"{file.Timestamp:yyyy-MM-dd HH:mm:ss} · {(file.TimestampSource == TimestampSource.FileName ? "File name" : file.TimestampSource == TimestampSource.LastWriteTime ? "Modified time" : "Creation time")}   |   {reviewed.Metadata.DurationText}   |   {reviewed.Metadata.ResolutionText}   |   {MainForm.FormatSize(file.Size)}   |   {(file.Size == reference.Size ? "Exact size" : "Different size")}",
             ForeColor = AppTheme.MutedForeground,
             AccessibleName = $"Effective timestamp: {file.Timestamp:yyyy-MM-dd HH:mm:ss}; Timestamp source: {file.TimestampSource}; Duration: {reviewed.Metadata.DurationText}; Resolution: {reviewed.Metadata.ResolutionText}; Size: {file.Size.ToString(CultureInfo.InvariantCulture)} bytes; Size comparison: {(file.Size == reference.Size ? "Exact match" : "Different")}; Confidence: {reviewed.Confidence}"
         };
         layout.SizeChanged += (_, _) => metadata.MaximumSize =
             new Size(Math.Max(1, layout.ClientSize.Width - _selection.Width - _selection.Margin.Horizontal - metadata.Margin.Horizontal), 0);
         var badge = new ConfidenceBadge(reviewed.Confidence);
+
+        if (file.IsProtected || reviewed.RequiresProtectedMatch)
+        {
+            metadata.Text += $"   |   {reviewed.RetentionText}";
+            metadata.AccessibleName += $"; {reviewed.RetentionText}";
+        }
 
         var badges = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = BackColor, Margin = new Padding(0) };
         badges.Controls.Add(state);
@@ -219,12 +227,13 @@ internal sealed class ReviewedFileRow : Panel
     }
 
     private static string BuildAccessibleName(int group, ReviewedVideo reviewed, VideoCandidate reference, bool selected) =>
-        $"Group {group}; File {reviewed.Candidate.RelativePath}; {(selected ? "Selected for removal" : "Not selected")}; {(reviewed.SuggestedKeep ? "Suggested keep" : "Suggested removal")}; Timestamp {reviewed.Candidate.Timestamp:yyyy-MM-dd HH:mm:ss}; Source {reviewed.Candidate.TimestampSource}; Duration {reviewed.Metadata.DurationText}; Resolution {reviewed.Metadata.ResolutionText}; Size {reviewed.Candidate.Size} bytes; Size comparison {(reviewed.Candidate.Size == reference.Size ? "Exact match" : "Different")}; Confidence {reviewed.Confidence}";
+        $"Group {group}; File {reviewed.Candidate.RelativePath}; {(selected ? "Selected for removal" : "Not selected")}; {(reviewed.SuggestRemoval ? "Suggested removal" : "Suggested keep")}; {reviewed.RetentionText}; Timestamp {reviewed.Candidate.Timestamp:yyyy-MM-dd HH:mm:ss}; Source {reviewed.Candidate.TimestampSource}; Duration {reviewed.Metadata.DurationText}; Resolution {reviewed.Metadata.ResolutionText}; Size {reviewed.Candidate.Size} bytes; Size comparison {(reviewed.Candidate.Size == reference.Size ? "Exact match" : "Different")}; Confidence {reviewed.Confidence}";
 }
 
 internal sealed class DuplicateGroupCard : Panel
 {
     private const int SummaryHeight = 116;
+    private readonly int _summaryHeight;
     private readonly DuplicateGroup _group;
     private readonly IReadOnlyDictionary<string, ReviewedVideo> _reviewed;
     private readonly Func<string, bool> _isSelected;
@@ -248,6 +257,7 @@ internal sealed class DuplicateGroupCard : Panel
         Func<string, bool> isSelected, Action<VideoCandidate, bool> selectionChanged, Action<bool> setGroupSelection, Func<(int Count, long Bytes)>? selectionTotals = null)
     {
         _group = group;
+        _summaryHeight = SummaryHeight + (group.Files.Any(file => file.IsProtected) ? 24 : 0);
         _reviewed = reviewed;
         _isSelected = isSelected;
         _selectionTotals = selectionTotals;
@@ -259,7 +269,7 @@ internal sealed class DuplicateGroupCard : Panel
         _detailPager.Controls.AddRange([_previousDetailPage, _detailPageRange, _nextDetailPage]);
         Dock = DockStyle.Top;
         AutoSize = false;
-        Height = SummaryHeight;
+        Height = _summaryHeight;
         Margin = Padding.Empty;
         Padding = new Padding(4, 0, 0, 6);
         BackColor = AppTheme.WindowBack;
@@ -281,16 +291,20 @@ internal sealed class DuplicateGroupCard : Panel
 
         var titleStack = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 1, Margin = Padding.Empty, BackColor = AppTheme.CardBack };
         titleStack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        var confidence = group.Files.Select(file => reviewed[file.FullPath].Confidence).Min();
+        var confidence = ConfidenceEvaluator.ForSuggestedRemovals(group.Files.Select(file => reviewed[file.FullPath]));
         var span = group.Files[^1].Timestamp - group.Files[0].Timestamp;
-        var candidates = group.Files.Where(file => !ReferenceEquals(file, group.SuggestedKeep)).ToList();
+        var candidates = group.Files.Where(file => reviewed[file.FullPath].SuggestRemoval).ToList();
         var preview = string.Join("  ·  ", candidates.Take(3).Select(file => file.RelativePath));
         if (candidates.Count > 3) preview += $"  ·  +{candidates.Count - 3} more";
+        if (candidates.Count == 0) preview = "None; protected clips and unmatched files are kept";
         var heading = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = AppTheme.CardBack };
         heading.Controls.Add(new Label { Text = $"Group {group.Number}", AutoSize = true, Font = new Font(AppTheme.UiFont, FontStyle.Bold), AccessibleName = $"Duplicate group {group.Number}" });
-        heading.Controls.Add(new ConfidenceBadge(confidence));
+        if (confidence is { } level) heading.Controls.Add(new ConfidenceBadge(level));
+        else heading.Controls.Add(new Label { Text = "No removal suggested", AutoSize = true, ForeColor = AppTheme.MutedForeground, AccessibleName = "No removal suggested" });
         titleStack.Controls.Add(heading);
         titleStack.Controls.Add(new Label { Text = $"Keep  {group.SuggestedKeep.RelativePath}", Dock = DockStyle.Top, AutoEllipsis = true, Height = 18, ForeColor = AppTheme.SuccessText, Margin = new Padding(0, 3, 0, 0), AccessibleName = $"Suggested keep: {group.SuggestedKeep.RelativePath}" });
+        if (group.Files.Any(file => file.IsProtected))
+            titleStack.Controls.Add(new Label { Text = "Renamed clips are protected. Only originals matching a protected clip's duration, resolution and size can be selected.", Dock = DockStyle.Top, AutoEllipsis = true, Height = 18, ForeColor = AppTheme.SuccessText, AccessibleName = "Renamed clips are protected; matching originals only" });
         titleStack.Controls.Add(new Label { Text = $"Remove  {preview}", Dock = DockStyle.Top, AutoEllipsis = true, Height = 18, ForeColor = AppTheme.MutedForeground, Margin = new Padding(0, 2, 0, 0), AccessibleName = $"Suggested removals: {string.Join(", ", candidates.Select(file => file.RelativePath))}" });
         titleStack.Controls.Add(new Label { Text = $"{group.Files.Count} files · {FormatSpan(span)} apart · {MainForm.FormatSize(candidates.Sum(file => file.Size))} suggested removal size", Dock = DockStyle.Top, AutoEllipsis = true, Height = 18, ForeColor = AppTheme.MutedForeground, Margin = new Padding(0, 2, 0, 0), AccessibleName = $"{group.Files.Count} files; time span {FormatSpan(span)}; suggested removal size {MainForm.FormatSize(candidates.Sum(file => file.Size))}" });
 
@@ -378,7 +392,7 @@ internal sealed class DuplicateGroupCard : Panel
         }
     }
 
-    private void UpdateExpandedHeight() => Height = LogicalToDeviceUnits(SummaryHeight) +
+    private void UpdateExpandedHeight() => Height = LogicalToDeviceUnits(_summaryHeight) +
         (_expanded ? Math.Max(LogicalToDeviceUnits(84), _rows.Values.Sum(row => row.Height) + _detailsHost.Padding.Vertical +
             (_detailPager.Visible ? _detailPager.Height : 0)) : 0);
 

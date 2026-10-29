@@ -19,10 +19,24 @@ internal sealed record ReviewedVideo(
     VideoCandidate Candidate,
     MediaMetadata Metadata,
     DuplicateConfidence Confidence,
-    bool SuggestedKeep);
+    bool SuggestedKeep,
+    bool RequiresProtectedMatch = false,
+    IReadOnlyList<VideoCandidate>? ProtectedMatches = null)
+{
+    internal bool MatchesProtectedCopy => ProtectedMatches is { Count: > 0 };
+    internal VideoCandidate? ProtectedReference => ProtectedMatches?.FirstOrDefault();
+    internal bool CanRemove => !Candidate.IsProtected && (!RequiresProtectedMatch || MatchesProtectedCopy);
+    internal bool SuggestRemoval => !SuggestedKeep && CanRemove;
+    internal string RetentionText => Candidate.IsProtected ? "Protected renamed clip" :
+        RequiresProtectedMatch ? MatchesProtectedCopy ? $"Metadata match to protected clip: {ProtectedReference!.RelativePath}; duration, resolution and size match" :
+        "No metadata match to a protected clip; kept" : "Standard timestamp review";
+}
 
 internal static class ConfidenceEvaluator
 {
+    internal static DuplicateConfidence? ForSuggestedRemovals(IEnumerable<ReviewedVideo> videos) =>
+        videos.Where(video => video.SuggestRemoval).Select(video => (DuplicateConfidence?)video.Confidence).Max();
+
     internal static DuplicateConfidence Evaluate(VideoCandidate candidate, MediaMetadata metadata, VideoCandidate reference, MediaMetadata referenceMetadata)
     {
         if (metadata.Status != MetadataProbeStatus.Available || referenceMetadata.Status != MetadataProbeStatus.Available ||

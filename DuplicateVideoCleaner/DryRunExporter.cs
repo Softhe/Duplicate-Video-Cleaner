@@ -32,17 +32,17 @@ internal static class DryRunExporter
 
     private static void WriteCsv(TextWriter builder, DryRunContext context, CancellationToken cancellationToken)
     {
-        builder.WriteLine("Group,SelectedAction,SuggestedAction,Path,EffectiveTimestamp,TimestampSource,Duration,Resolution,Bytes,FormattedSize,Confidence,KeepRule,ThresholdSeconds,Scope");
+        builder.WriteLine("Group,SelectedAction,SuggestedAction,Path,EffectiveTimestamp,TimestampSource,Duration,Resolution,Bytes,FormattedSize,Confidence,KeepRule,ThresholdSeconds,Scope,Retention,ProtectedMatchPath");
         foreach (var row in context.Rows)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var video = row.Video;
             var values = new[]
             {
-                row.Group.ToString(CultureInfo.InvariantCulture), row.Selected ? "Remove" : "Keep", video.SuggestedKeep ? "Keep" : "Remove",
+                row.Group.ToString(CultureInfo.InvariantCulture), row.Selected ? "Remove" : "Keep", video.SuggestRemoval ? "Remove" : "Keep",
                 video.Candidate.FullPath, video.Candidate.Timestamp.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), video.Candidate.TimestampSource.ToString(),
                 video.Metadata.DurationText, video.Metadata.ResolutionText, video.Candidate.Size.ToString(CultureInfo.InvariantCulture), MainForm.FormatSize(video.Candidate.Size),
-                video.Confidence.ToString(), context.KeepMode.ToString(), context.ThresholdSeconds.ToString(CultureInfo.InvariantCulture), context.IncludeSubfolders ? "Recursive" : "Current folder"
+                video.Confidence.ToString(), context.KeepMode.ToString(), context.ThresholdSeconds.ToString(CultureInfo.InvariantCulture), context.IncludeSubfolders ? "Recursive" : "Current folder", video.RetentionText, video.ProtectedReference?.FullPath ?? string.Empty
             };
             builder.WriteLine(string.Join(',', values.Select(EscapeCsv)));
         }
@@ -72,7 +72,7 @@ internal static class DryRunExporter
             foreach (var row in group)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                builder.WriteLine($"  {(row.Selected ? "REMOVE" : "KEEP"),-6} [{row.Video.Confidence}] {row.Video.Candidate.RelativePath}");
+                builder.WriteLine($"  {(row.Selected ? "REMOVE" : "KEEP"),-6} [{row.Video.Confidence}] {row.Video.Candidate.RelativePath} | {row.Video.RetentionText}");
             }
         }
     }

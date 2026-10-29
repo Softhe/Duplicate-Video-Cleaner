@@ -7,6 +7,7 @@ var tests = new List<(string Name, Func<Task> Run)>
 {
     ("filename timestamp", Sync(FilenameTimestamp)),
     ("creation time fallback", Sync(CreationTimeFallback)),
+    ("transfer timestamp precedence", Sync(TransferTimestampPrecedence)),
     ("exact threshold and outside", Sync(ExactThresholdAndOutside)),
     ("chained grouping", Sync(ChainedGrouping)),
     ("oldest and newest", Sync(OldestAndNewest)),
@@ -24,6 +25,14 @@ var tests = new List<(string Name, Func<Task> Run)>
     ("partial removal integration", PartialRemovalIntegration)
 };
 tests.AddRange(RemovalRegressionTests.Cases);
+tests.Add(("copied clips preserve original dates", Sync(ScannerRegressionTests.CopiedFilesKeepOriginalDates)));
+tests.Add(("renamed clips find copies across dates and override keep mode", Sync(RenamedFileTests.ScannerFindsProtectedCopiesAcrossDates)));
+tests.Add(("renamed clips require metadata matches and survive all selections", Sync(RenamedFileTests.SelectionRequiresMatchToAnyProtectedClip)));
+tests.Add(("removal refuses protected renamed clips", RenamedFileTests.RemovalRejectsProtectedClip));
+tests.Add(("protected survivor validation for recovery and permanent removal", RenamedFileTests.ProtectedSurvivorValidation));
+tests.Add(("protected survivor stays pinned during removal", RenamedFileTests.ProtectedSurvivorStaysPinnedDuringRemoval));
+tests.Add(("group confidence summarizes removal suggestions", Sync(RenamedFileTests.GroupConfidenceUsesSuggestedRemovals)));
+tests.Add(("reconciliation drops protected-only groups only after successful removal", Sync(RenamedFileTests.ReconciliationDropsProtectedOnlyGroupsAfterSuccessfulRemoval)));
 tests.Add(("scanner cancellation and snapshots", Sync(ScannerRegressionTests.CancellationAndSnapshots)));
 tests.Add(("metadata real process cancellation and timeout", MetadataRegressionTests.ProcessesAndCancellation));
 
@@ -49,6 +58,23 @@ static void CreationTimeFallback()
     var result = DuplicateScanner.GetEffectiveTimestamp("clip 2025-99-99 99-99-99.mkv", fallback);
     Equal(fallback, result.Timestamp);
     Equal(TimestampSource.CreationTime, result.Source);
+}
+
+static void TransferTimestampPrecedence()
+{
+    var original = new DateTime(2026, 3, 6, 1, 8, 24);
+    var transferred = new DateTime(2026, 9, 20, 18, 54, 13);
+    var copied = DuplicateScanner.GetEffectiveTimestamp("renamed.mp4", transferred, original);
+    Equal(original, copied.Timestamp);
+    Equal(TimestampSource.LastWriteTime, copied.Source);
+    var edited = DuplicateScanner.GetEffectiveTimestamp("renamed.mp4", original, transferred);
+    Equal(original, edited.Timestamp);
+    Equal(TimestampSource.CreationTime, edited.Source);
+    var named = DuplicateScanner.GetEffectiveTimestamp("Replay 2026-01-02 03-04-05.mp4", transferred, original);
+    Equal(new DateTime(2026, 1, 2, 3, 4, 5), named.Timestamp);
+    Equal(TimestampSource.FileName, named.Source);
+    var equal = DuplicateScanner.GetEffectiveTimestamp("renamed.mp4", original, original);
+    Equal(TimestampSource.CreationTime, equal.Source);
 }
 
 static void ExactThresholdAndOutside() => WithFolder(root =>
@@ -209,10 +235,10 @@ static async Task PartialRemovalIntegration()
     Directory.CreateDirectory(root);
     try
     {
-        var existingPath = Path.Combine(root, "existing.mp4");
+        var existingPath = Path.Combine(root, "2026-01-01 10-00-00 existing.mp4");
         File.WriteAllBytes(existingPath, [1, 2, 3]);
         var missingPath = Path.Combine(root, "missing.mp4");
-        File.WriteAllBytes(Path.Combine(root, "other.mp4"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(root, "2026-01-01 10-00-01 other.mp4"), [1, 2, 3]);
         var scanned = DuplicateScanner.Scan(root, 60, false, KeepMode.Oldest).Single().Files.Single(file => file.FullPath == existingPath);
         var result = await FileRemovalService.RemoveAsync([scanned, Candidate(missingPath, 3)], true, Path.Combine(root, "log.txt"));
         Equal(1, result.RemovedPaths.Count);

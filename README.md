@@ -2,7 +2,7 @@
 
 Find videos recorded close together, review the suggestions, and choose what to remove.
 
-Duplicate Video Cleaner groups `.mp4` and `.mkv` files by their timestamps. Duration, resolution, and file size help you compare each group. It does **not** compare video content, so a suggested duplicate may be a different recording. Review each selection before removing it.
+Duplicate Video Cleaner groups `.mp4` and `.mkv` files by their timestamps and protects clips without recording dates in their names. Duration, resolution, and file size help you compare each group and identify potential copies of protected clips. It does **not** compare video content, so a suggested duplicate may be a different recording. Review each selection before removing it.
 
 ![Scan workspace](docs/screenshots/scan.png)
 
@@ -38,11 +38,19 @@ The published setup is unsigned. Preferences are saved in your Windows user prof
 
 ## What the suggestions mean
 
-The app first looks for a timestamp in the filename, such as `2026-10-15 14-30-00.mp4`. If it cannot find a valid timestamp, it uses the file's creation time. It sorts the files and groups neighboring timestamps within your chosen window, which defaults to 60 seconds.
+The app first looks for a timestamp in the filename, such as `2026-10-15 14-30-00.mp4`. If it cannot find a valid timestamp, it uses the earlier of the file's creation and modification times. This avoids grouping unrelated clips by a new creation time after a copy or cross-volume move when the original modification time survives. Review shows which timestamp source was used. Filesystem dates can also change during editing or transfers, so they do not prove when a video was recorded. It sorts the files and groups neighboring timestamps within your chosen window, which defaults to 60 seconds.
 
 Groups can span longer than that window. With a 60-second window, recordings at 12:00:00, 12:00:50, and 12:01:40 belong to the same group because each neighboring pair is within 60 seconds.
 
-Confidence compares each file with the suggested keeper:
+Files without a valid recording date in the filename are treated as renamed clips and protected from removal. Windows does not provide a reliable rename history, so this rule also protects files that never had a date in their names. A renamed file that still contains a valid recording date is treated as an original-name clip.
+
+Protected clips remain available for duplicate comparison. The scanner also considers original-name files with the same byte size as a protected clip, even outside the time window. This can join time groups and increase their displayed time span. Groups containing only protected clips are skipped. In a group with protected clips, an original-name file is eligible for removal only when its duration, resolution, and exact byte size match any protected clip. Duration is compared to the nearest millisecond. Missing or invalid metadata leaves the file unselected and blocks removal selection. All protected clips are kept, and the oldest/newest preference chooses the displayed keeper among them.
+
+Review marks renamed clips as **PROTECTED**, disables their removal checkboxes, and names the protected clip establishing each metadata match. **Suggested** selects eligible originals; **All** also respects protection and the metadata requirement. Dry-run exports include each file's retention reason and the protected match path. Metadata matches are advisory and do not verify identical video content. Groups without protected clips continue to use the timestamp suggestions described above.
+
+Before removing an eligible original, the app validates a matching protected clip against its scan snapshot and holds that clip and its parent directories open through removal. If that match is missing or changed, the app tries another matching protected clip. If none remains unchanged and available, the original is kept and the failure asks for a rescan. Other independent removals can continue.
+
+Confidence compares ordinary files with the suggested keeper. Eligible copies of protected clips are compared with their actual named protected match, which can differ from the group's displayed keeper. The group badge shows the weakest suggested removal's confidence, excluding keeper self-comparisons. Groups without removal suggestions display **No removal suggested**.
 
 | Confidence | Comparison |
 | --- | --- |

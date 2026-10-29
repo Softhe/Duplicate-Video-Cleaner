@@ -428,6 +428,7 @@ public sealed class MainForm : Form
                         _reviewed[file.FullPath] = new ReviewedVideo(file, new MediaMetadata(null, null, null, MetadataProbeStatus.Unavailable, "ffprobe was not found"), DuplicateConfidence.Low, ReferenceEquals(file, group.SuggestedKeep));
             }
 
+            foreach (var group in _groups) RenamedFilePolicy.Apply(group, _reviewed);
             var metadataWarnings = _reviewed.Values.Where(video => !string.IsNullOrWhiteSpace(video.Metadata.Error) || video.Metadata.Status is MetadataProbeStatus.Failed or MetadataProbeStatus.TimedOut).ToArray();
             foreach (var warning in metadataWarnings.Take(20))
                 AddActivity("Metadata needs attention", $"{warning.Candidate.RelativePath}: {warning.Metadata.Error ?? warning.Metadata.Status.ToString()}", false);
@@ -436,7 +437,7 @@ public sealed class MainForm : Form
             if (metadataWarnings.Length > 0) skipped += $" Metadata warnings affect {metadataWarnings.Length} file(s); see Activity and Review.";
 
             foreach (var group in _groups)
-                foreach (var file in group.Files.Where(file => !ReferenceEquals(file, group.SuggestedKeep))) _selectedPaths.Add(file.FullPath);
+                foreach (var file in group.Files.Where(file => _reviewed[file.FullPath].SuggestRemoval)) _selectedPaths.Add(file.FullPath);
             BuildCards();
             cancellation.Token.ThrowIfCancellationRequested();
             _operationStatus.Text = context.Description + (_metadataProbe.IsAvailable
@@ -494,7 +495,7 @@ public sealed class MainForm : Form
                 {
                     foreach (var file in group.Files)
                     {
-                        Session.SetSelected(file, suggested && !ReferenceEquals(file, group.SuggestedKeep));
+                        Session.SetSelected(file, suggested && _reviewed[file.FullPath].SuggestRemoval);
                     }
                     card!.RefreshSelectionState();
                     UpdateSelectionStatus();
@@ -529,7 +530,7 @@ public sealed class MainForm : Form
     private void SetSuggestedSelection()
     {
         foreach (var group in _groups)
-            foreach (var file in group.Files) Session.SetSelected(file, !ReferenceEquals(file, group.SuggestedKeep));
+            foreach (var file in group.Files) Session.SetSelected(file, _reviewed[file.FullPath].SuggestRemoval);
         RefreshCardsAndSummary();
     }
 
@@ -565,7 +566,7 @@ public sealed class MainForm : Form
         SetBusy(true, "Removing selected files…");
         try
         {
-            var result = await FileRemovalService.RemoveAsync(selected, permanent, GetLogPath());
+            var result = await FileRemovalService.RemoveReviewedAsync(selected.Select(file => _reviewed[file.FullPath]).ToArray(), permanent, GetLogPath());
             ReconcileRemoval(result);
             _operationStatus.Text = $"Removed {result.RemovedPaths.Count} file(s); {result.Failures.Count} failed.";
             var successful = result.Failures.Count == 0 && result.AuditError is null;
