@@ -2,6 +2,31 @@ using DuplicateVideoCleaner;
 
 internal static class RenamedFileTests
 {
+    internal static void ReconciliationDropsProtectedOnlyGroupsAfterSuccessfulRemoval()
+    {
+        var files = Enumerable.Range(0, 3).Select(i => new VideoCandidate(
+            Path.Combine(Path.GetTempPath(), $"reconcile-{i}.mp4"), $"reconcile-{i}.mp4",
+            new DateTime(2026, 1, 1), TimestampSource.FileName, 100, IsProtected: i < 2)).ToArray();
+        var group = new DuplicateGroup(1, files, files[0]);
+        var reviewed = files.ToDictionary(file => file.FullPath, file => new ReviewedVideo(file,
+            new(TimeSpan.FromSeconds(10), 1920, 1080, MetadataProbeStatus.Available), DuplicateConfidence.High, file == files[0]));
+        RenamedFilePolicy.Apply(group, reviewed);
+        var session = new ReviewSession([group], new(StringComparer.OrdinalIgnoreCase),
+            new(Path.GetTempPath(), 60, KeepMode.Oldest, false), reviewed);
+        session.SetSelected(files[2], true);
+
+        var failed = session.Reconcile(new RemovalResult(new HashSet<string>(), [new(files[2], "Fixture removal failure.")]));
+        Check(failed.Groups.Count == 1 && failed.FileCount == 3 && failed.SelectedCount == 1,
+            "A failed removal discarded the mixed group or its selection.");
+        Check(failed.Groups[0].Files.Count(file => file.IsProtected) == 2 && failed.SelectedFiles().Single() == files[2],
+            "A failed removal lost protected clips or the original.");
+
+        var completed = failed.Reconcile(new RemovalResult(new HashSet<string> { files[2].FullPath }, []));
+        Check(completed.Groups.Count == 0 && completed.FileCount == 0 && completed.SelectedCount == 0 &&
+            completed.SelectedBytes == 0 && completed.SelectedFiles().Count == 0 && completed.CreateDryRun().Rows.Count == 0,
+            "Successful removal left a protected-only cleanup group, indexed files, or stale selections.");
+    }
+
     internal static void ScannerFindsProtectedCopiesAcrossDates()
     {
         var root = Path.Combine(Path.GetTempPath(), "dvc-renamed-" + Guid.NewGuid());

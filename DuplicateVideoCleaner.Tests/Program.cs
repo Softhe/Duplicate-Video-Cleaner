@@ -32,6 +32,7 @@ tests.Add(("removal refuses protected renamed clips", RenamedFileTests.RemovalRe
 tests.Add(("protected survivor validation for recovery and permanent removal", RenamedFileTests.ProtectedSurvivorValidation));
 tests.Add(("protected survivor stays pinned during removal", RenamedFileTests.ProtectedSurvivorStaysPinnedDuringRemoval));
 tests.Add(("group confidence summarizes removal suggestions", Sync(RenamedFileTests.GroupConfidenceUsesSuggestedRemovals)));
+tests.Add(("reconciliation drops protected-only groups only after successful removal", Sync(RenamedFileTests.ReconciliationDropsProtectedOnlyGroupsAfterSuccessfulRemoval)));
 tests.Add(("scanner cancellation and snapshots", Sync(ScannerRegressionTests.CancellationAndSnapshots)));
 tests.Add(("metadata real process cancellation and timeout", MetadataRegressionTests.ProcessesAndCancellation));
 

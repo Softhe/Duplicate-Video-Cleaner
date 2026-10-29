@@ -61,7 +61,7 @@ internal sealed class ReviewSession
         foreach (var group in Groups)
         {
             var remaining = group.Files.Where(file => !result.RemovedPaths.Contains(file.FullPath)).ToArray();
-            if (remaining.Length < 2) continue;
+            if (remaining.Length < 2 || remaining.All(file => file.IsProtected)) continue;
             var keep = remaining.Contains(group.SuggestedKeep) ? group.SuggestedKeep :
                 DuplicateScanner.ChooseKeeper(remaining, context.KeepMode);
             var reference = Reviewed[keep.FullPath].Metadata;
