@@ -28,6 +28,9 @@ RestartApplications=no
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 [Files]
 Source: "{#PayloadDirectory}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+[UninstallDelete]
+; Thumbnails are a cache; preferences and Recovery are deliberately kept.
+Type: filesandordirs; Name: "{localappdata}\DuplicateVideoCleaner\Thumbnails"
 [Icons]
 Name: "{group}\Duplicate Video Cleaner"; Filename: "{app}\DuplicateVideoCleaner.exe"
 Name: "{userdesktop}\Duplicate Video Cleaner"; Filename: "{app}\DuplicateVideoCleaner.exe"; Tasks: desktopicon

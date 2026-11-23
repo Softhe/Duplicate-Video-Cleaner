@@ -123,7 +123,11 @@ internal sealed class ReviewViewModel : ObservableObject
     public bool IsExporting => _exportCancellation is not null;
     public bool IsWorking => _main.Busy is BusyOperation.Export or BusyOperation.Removal;
 
-    internal void OnBusyChanged() => Raise(nameof(IsWorking), nameof(IsExporting));
+    internal void OnBusyChanged()
+    {
+        Raise(nameof(IsWorking), nameof(IsExporting));
+        if (Thumbnails is { } thumbnails) thumbnails.Paused = _main.Busy is BusyOperation.Scan or BusyOperation.Removal;
+    }
 
     // Rebuilds the group list from the workspace (after a scan, removal or clear).
     internal void Reload(string? scanStatus = null)

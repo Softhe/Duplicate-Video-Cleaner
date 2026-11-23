@@ -31,6 +31,9 @@ if ($ffmpegRoots.Count -ne 1) { throw 'Unexpected FFmpeg archive layout.' }
 $ffmpegRoot = $ffmpegRoots[0]
 $version = & (Join-Path $ffmpegRoot.FullName "bin\ffprobe.exe") -version 2>&1
 if ($LASTEXITCODE -ne 0 -or $version[0] -notlike "ffprobe version $($pin.version)*" -or ($version -join ' ') -match 'enable-(gpl|nonfree)') { throw 'Unexpected FFmpeg build.' }
+# ffmpeg extracts one thumbnail frame per video in the same sandbox; it must come from the same LGPL build.
+$ffmpegVersion = & (Join-Path $ffmpegRoot.FullName "bin\ffmpeg.exe") -version 2>&1
+if ($LASTEXITCODE -ne 0 -or $ffmpegVersion[0] -notlike "ffmpeg version $($pin.version)*" -or ($ffmpegVersion -join ' ') -match 'enable-(gpl|nonfree)') { throw 'Unexpected FFmpeg build (ffmpeg).' }
 if (Test-Path -LiteralPath $releaseRoot) {
     if (-not $Force) { throw "Release directory already exists: $releaseRoot (use -Force to replace generated release artifacts)" }
     $expectedReleaseParent = [System.IO.Path]::GetFullPath((Join-Path $root "release"))
@@ -41,6 +44,7 @@ if (Test-Path -LiteralPath $releaseRoot) {
 New-Item -ItemType Directory -Path (Join-Path $releaseRoot "tools") -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $root "DuplicateVideoCleaner\publish\DuplicateVideoCleaner.exe") -Destination $releaseRoot
 Copy-Item -LiteralPath (Join-Path $ffmpegRoot.FullName "bin\ffprobe.exe") -Destination (Join-Path $releaseRoot "tools")
+Copy-Item -LiteralPath (Join-Path $ffmpegRoot.FullName "bin\ffmpeg.exe") -Destination (Join-Path $releaseRoot "tools")
 Get-ChildItem -LiteralPath (Join-Path $ffmpegRoot.FullName "bin") -Filter "*.dll" | Copy-Item -Destination (Join-Path $releaseRoot "tools")
 Copy-Item -LiteralPath (Join-Path $root "README.md"),(Join-Path $root "CHANGELOG.md"),(Join-Path $root "LICENSE.txt"),(Join-Path $root "FFMPEG-NOTICE.md") -Destination $releaseRoot
 Copy-Item -LiteralPath (Join-Path $ffmpegRoot.FullName "LICENSE.txt") -Destination (Join-Path $releaseRoot "FFMPEG-LICENSE.txt")

@@ -12,7 +12,7 @@ if ($RequireVirtualMachine -and -not $isVirtual) { throw 'Portable release quali
 try {
     Expand-Archive -LiteralPath $archive -DestinationPath $sandbox
     $payload = Join-Path $sandbox $folderName
-    foreach ($required in @('DuplicateVideoCleaner.exe', 'tools\ffprobe.exe', 'SHA256SUMS.txt', 'FFMPEG-LICENSE.txt', 'FFMPEG-BUILD.json')) {
+    foreach ($required in @('DuplicateVideoCleaner.exe', 'tools\ffprobe.exe', 'tools\ffmpeg.exe', 'SHA256SUMS.txt', 'FFMPEG-LICENSE.txt', 'FFMPEG-BUILD.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $payload $required))) { throw "Portable file missing: $required" }
     }
     foreach ($entry in Get-Content -LiteralPath (Join-Path $payload 'SHA256SUMS.txt')) {
@@ -27,6 +27,8 @@ try {
     }
     & (Join-Path $payload 'tools\ffprobe.exe') -version | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Portable ffprobe failed.' }
+    & (Join-Path $payload 'tools\ffmpeg.exe') -version | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Portable ffmpeg failed.' }
     $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $payload 'DuplicateVideoCleaner.exe'))
     $start.UseShellExecute = $false
     $start.Environment['DVC_SETTINGS_PATH'] = Join-Path $sandbox 'settings.json'

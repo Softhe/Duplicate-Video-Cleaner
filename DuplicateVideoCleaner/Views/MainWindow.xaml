@@ -110,6 +110,16 @@
                 <TextBlock Style="{StaticResource CaptionText}" Margin="0,6,0,0" TextWrapping="Wrap"
                            Text="System follows the Windows app mode." />
                 <Border Style="{StaticResource Divider}" Margin="0,14" />
+                <DockPanel>
+                  <CheckBox DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding ShowThumbnails}" VerticalAlignment="Top"
+                            AutomationProperties.Name="Show video thumbnails" />
+                  <StackPanel Margin="0,0,12,0">
+                    <TextBlock Text="Video thumbnails" Style="{StaticResource BodyStrongText}" />
+                    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Text="One frame per file, read by the isolated parser and cached in your user profile." />
+                  </StackPanel>
+                </DockPanel>
+                <Border Style="{StaticResource Divider}" Margin="0,14" />
                 <TextBlock Text="Duplicate Video Cleaner" Style="{StaticResource BodyStrongText}" />
                 <TextBlock Style="{StaticResource CaptionText}" Margin="0,2,0,0" Text="{Binding Version, StringFormat=Version {0}}" />
                 <TextBlock Style="{StaticResource CaptionText}" Margin="0,6,0,0" TextWrapping="Wrap"

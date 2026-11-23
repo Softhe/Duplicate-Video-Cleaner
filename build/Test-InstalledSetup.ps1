@@ -56,7 +56,7 @@ try {
     $installedVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $install 'DuplicateVideoCleaner.exe')).FileVersion
     if ($installedVersion -ne $expectedVersion) { throw "Installed version $installedVersion does not match candidate $expectedVersion." }
     if ($PreviousSetupPath -and $previousVersion -eq $installedVersion) { throw 'Upgrade acceptance requires distinct previous and candidate versions.' }
-    foreach ($required in @('DuplicateVideoCleaner.exe', 'tools\ffprobe.exe', 'FFMPEG-LICENSE.txt', 'FFMPEG-BUILD.json', 'SHA256SUMS.txt', 'unins000.exe')) {
+    foreach ($required in @('DuplicateVideoCleaner.exe', 'tools\ffprobe.exe', 'tools\ffmpeg.exe', 'FFMPEG-LICENSE.txt', 'FFMPEG-BUILD.json', 'SHA256SUMS.txt', 'unins000.exe')) {
         if (-not (Test-Path -LiteralPath (Join-Path $install $required))) { throw "Installed file missing: $required" }
     }
     foreach ($entry in Get-Content -LiteralPath (Join-Path $install 'SHA256SUMS.txt')) {
@@ -78,6 +78,8 @@ try {
     } finally { $writer.Dispose() }
     $probeOutput = & (Join-Path $install 'tools\ffprobe.exe') -v error -show_format -of json $fixture
     if ($LASTEXITCODE -ne 0 -or [double]($probeOutput | ConvertFrom-Json).format.duration -ne 1) { throw 'Installed ffprobe fixture check failed.' }
+    & (Join-Path $install 'tools\ffmpeg.exe') -version | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Installed ffmpeg failed.' }
     $candidateSettingsWrite = (Get-Item -LiteralPath $settingsFixture).LastWriteTimeUtc
     Save-SettingsWithInstalledApp (Join-Path $install 'DuplicateVideoCleaner.exe') $settingsFixture
     Assert-SettingsRewritten -Path $settingsFixture -BeforeWriteUtc $candidateSettingsWrite -ApplicationLabel 'Candidate application'

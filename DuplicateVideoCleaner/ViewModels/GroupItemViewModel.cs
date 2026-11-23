@@ -94,15 +94,18 @@ internal sealed class GroupItemViewModel : ObservableObject
     }
 
     internal bool IsBusy => _review.IsBusy;
-    internal ImageSource? RequestThumbnail(VideoCandidate file, Action<ImageSource> loaded) => _review.Thumbnails?.Request(file, loaded);
+    internal ImageSource? RequestThumbnail(VideoCandidate file, TimeSpan? duration, Action<ImageSource> loaded) => _review.Thumbnails?.Request(file, duration, loaded);
 }
 
 // Supplies video thumbnails. Request returns a cached image or null, and calls loaded later
 // (on the UI thread) when a frame becomes available. Rows only ask when they are on screen.
 internal interface IThumbnailProvider
 {
-    ImageSource? Request(VideoCandidate file, Action<ImageSource> loaded);
+    ImageSource? Request(VideoCandidate file, TimeSpan? duration, Action<ImageSource> loaded);
     void CancelPending();
+    // Paused while a scan or removal runs; disabled when the user turns thumbnails off.
+    bool Paused { get; set; }
+    bool Enabled { get; set; }
 }
 
 // One attribute on a file row (resolution, duration, size) and how it compares with the keeper.
@@ -189,7 +192,7 @@ internal sealed class FileItemViewModel : ObservableObject
             if (_thumbnail is null && !_thumbnailRequested)
             {
                 _thumbnailRequested = true;
-                _thumbnail = _group.RequestThumbnail(Candidate, image => Thumbnail = image);
+                _thumbnail = _group.RequestThumbnail(Candidate, Reviewed.Metadata.Duration, image => Thumbnail = image);
             }
             return _thumbnail;
         }

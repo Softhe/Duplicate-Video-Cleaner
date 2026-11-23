@@ -23,6 +23,7 @@ internal sealed record AppSettings
     public int WindowHeight { get; init; } = 740;
     public bool Maximized { get; init; }
     public ThemePreference Theme { get; init; } = ThemePreference.Dark;
+    public bool ShowThumbnails { get; init; } = true;
     public string[] RecentFolders { get; init; } = [];
 
     // Most recent first, without duplicates (case-insensitive), capped.

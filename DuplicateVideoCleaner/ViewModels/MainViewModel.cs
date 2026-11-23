@@ -96,6 +96,21 @@ internal sealed class MainViewModel : ObservableObject
         }
     }
 
+    // Video thumbnails in Review (on by default).
+    public bool ShowThumbnails
+    {
+        get => _settings.ShowThumbnails;
+        set
+        {
+            if (_settings.ShowThumbnails == value) return;
+            _settings = _settings with { ShowThumbnails = value };
+            if (Review.Thumbnails is { } thumbnails) thumbnails.Enabled = value;
+            Review.Reload();
+            Raise();
+            SaveSettings();
+        }
+    }
+
     public DialogViewModel? Dialog
     {
         get => _dialog;
