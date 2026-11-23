@@ -16,4 +16,7 @@
     <FileVersion>1.1.3.0</FileVersion>
     <ApplicationIcon>assets\DuplicateVideoCleaner.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DuplicateVideoCleaner.Core/DuplicateVideoCleaner.Core.csproj" />
+  </ItemGroup>
 </Project>

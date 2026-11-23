@@ -28,13 +28,11 @@ public sealed class MainFormLoggingTests
             })!;
             process.WaitForExit();
             Assert.AreEqual(0, process.ExitCode, "Could not create hard-link log fixture.");
-            var failure = Assert.ThrowsException<TargetInvocationException>(() => Append(alias, "unsafe write"));
-            Assert.IsInstanceOfType<IOException>(failure.InnerException);
+            Assert.ThrowsException<IOException>(() => Append(alias, "unsafe write"), "A hard-linked log must be rejected.");
             Assert.AreEqual("preserve original content", File.ReadAllText(target));
         }
         finally { Directory.Delete(root, true); }
     }
 
-    private static void Append(string path, string message) => typeof(MainForm)
-        .GetMethod("AppendLog", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [path, message]);
+    private static void Append(string path, string message) => CleanupLog.Append(path, message);
 }

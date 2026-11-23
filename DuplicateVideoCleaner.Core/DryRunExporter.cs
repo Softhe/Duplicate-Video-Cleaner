@@ -41,7 +41,7 @@ internal static class DryRunExporter
             {
                 row.Group.ToString(CultureInfo.InvariantCulture), row.Selected ? "Remove" : "Keep", video.SuggestRemoval ? "Remove" : "Keep",
                 video.Candidate.FullPath, video.Candidate.Timestamp.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), video.Candidate.TimestampSource.ToString(),
-                video.Metadata.DurationText, video.Metadata.ResolutionText, video.Candidate.Size.ToString(CultureInfo.InvariantCulture), MainForm.FormatSize(video.Candidate.Size),
+                video.Metadata.DurationText, video.Metadata.ResolutionText, video.Candidate.Size.ToString(CultureInfo.InvariantCulture), SizeFormatter.Format(video.Candidate.Size),
                 video.Confidence.ToString(), context.KeepMode.ToString(), context.ThresholdSeconds.ToString(CultureInfo.InvariantCulture), context.IncludeSubfolders ? "Recursive" : "Current folder", video.RetentionText, video.ProtectedReference?.FullPath ?? string.Empty
             };
             builder.WriteLine(string.Join(',', values.Select(EscapeCsv)));
@@ -62,7 +62,7 @@ internal static class DryRunExporter
         builder.WriteLine("Duplicate Video Cleaner — Dry Run");
         builder.WriteLine($"Folder: {context.Root}");
         builder.WriteLine($"Settings: {context.ThresholdSeconds}s threshold; keep {context.KeepMode}; {(context.IncludeSubfolders ? "including subfolders" : "current folder only")}; {(context.ProtectUndated ? "protecting clips without a recording date in the name" : "undated clips not protected")}");
-        builder.WriteLine($"Groups: {context.Rows.Select(row => row.Group).Distinct().Count()}; files: {context.Rows.Count}; selected: {selected.Count}; selected size: {MainForm.FormatSize(selected.Sum(row => row.Video.Candidate.Size))}");
+        builder.WriteLine($"Groups: {context.Rows.Select(row => row.Group).Distinct().Count()}; files: {context.Rows.Count}; selected: {selected.Count}; selected size: {SizeFormatter.Format(selected.Sum(row => row.Video.Candidate.Size))}");
         foreach (var confidence in Enum.GetValues<DuplicateConfidence>()) builder.WriteLine($"{confidence} confidence: {context.Rows.Count(row => row.Video.Confidence == confidence)}");
         builder.WriteLine();
         foreach (var group in context.Rows.GroupBy(row => row.Group))

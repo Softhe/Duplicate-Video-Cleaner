@@ -127,12 +127,11 @@ public sealed class LargeLibraryTests
 
     private static void Populate(MainForm form, IReadOnlyList<DuplicateGroup> groups)
     {
-        typeof(MainForm).GetField("_groups", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(form, groups);
-        typeof(MainForm).GetField("_scanContext", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(form, new ScanContext(Path.GetTempPath(), 60, KeepMode.Oldest, false));
-        var reviewed = (Dictionary<string, ReviewedVideo>)typeof(MainForm).GetField("_reviewed", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
+        var reviewed = new Dictionary<string, ReviewedVideo>(StringComparer.OrdinalIgnoreCase);
         foreach (var group in groups)
             foreach (var file in group.Files)
                 reviewed[file.FullPath] = new ReviewedVideo(file, new MediaMetadata(null, null, null, MetadataProbeStatus.Unavailable), DuplicateConfidence.Low, file == group.SuggestedKeep);
+        form.Workspace.Load(new ScanContext(Path.GetTempPath(), 60, KeepMode.Oldest, false), groups, reviewed, []);
     }
 
     private static void Invoke(MainForm form, string method, params object[] arguments) =>

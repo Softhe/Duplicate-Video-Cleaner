@@ -195,7 +195,7 @@ public sealed class ReviewImprovementTests
         }
         try
         {
-            Assert.ThrowsException<OperationCanceledException>(() => MainForm.AppendScanDiagnostics(log, Messages(), cancellation.Token));
+            Assert.ThrowsException<OperationCanceledException>(() => CleanupLog.AppendScanDiagnostics(log, Messages(), cancellation.Token));
             var content = File.ReadAllText(log);
             StringAssert.Contains(content, "First\\nentry");
             Assert.IsFalse(content.Contains("Should not be logged"));
