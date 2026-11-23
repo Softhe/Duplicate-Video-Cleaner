@@ -21,15 +21,22 @@ internal sealed record ReviewedVideo(
     DuplicateConfidence Confidence,
     bool SuggestedKeep,
     bool RequiresProtectedMatch = false,
-    IReadOnlyList<VideoCandidate>? ProtectedMatches = null)
+    IReadOnlyList<VideoCandidate>? ProtectedMatches = null,
+    bool InProtectedGroup = false,
+    VideoCandidate? OriginalKeeper = null)
 {
     internal bool MatchesProtectedCopy => ProtectedMatches is { Count: > 0 };
     internal VideoCandidate? ProtectedReference => ProtectedMatches?.FirstOrDefault();
+    // What Review compares this file with: its protected match, or the kept original
+    // of its time window in a group with protected clips.
+    internal VideoCandidate? ComparisonReference => ProtectedReference ?? OriginalKeeper;
     internal bool CanRemove => !Candidate.IsProtected && (!RequiresProtectedMatch || MatchesProtectedCopy);
     internal bool SuggestRemoval => !SuggestedKeep && CanRemove;
-    internal string RetentionText => Candidate.IsProtected ? "Protected renamed clip" :
-        RequiresProtectedMatch ? MatchesProtectedCopy ? $"Metadata match to protected clip: {ProtectedReference!.RelativePath}; duration, resolution and size match" :
-        "No metadata match to a protected clip; kept" : "Standard timestamp review";
+    internal string RetentionText => Candidate.IsProtected ? "Protected clip (no recording date in its name)" :
+        MatchesProtectedCopy ? $"Metadata match to protected clip: {ProtectedReference!.RelativePath}; duration, resolution and size match" :
+        RequiresProtectedMatch ? "No metadata match to a protected clip and no other original in its time window; kept" :
+        InProtectedGroup ? SuggestedKeep ? "Kept original of its time window" : $"Timestamp review against original: {OriginalKeeper?.RelativePath}" :
+        "Standard timestamp review";
 }
 
 internal static class ConfidenceEvaluator

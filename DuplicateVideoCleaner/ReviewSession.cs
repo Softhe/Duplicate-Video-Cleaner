@@ -75,7 +75,7 @@ internal sealed class ReviewSession
                 });
             }
             var rebuiltGroup = new DuplicateGroup(rebuilt.Count + 1, remaining, keep);
-            RenamedFilePolicy.Apply(rebuiltGroup, reviewed);
+            RenamedFilePolicy.Apply(rebuiltGroup, reviewed, context.KeepMode);
             rebuilt.Add(rebuiltGroup);
         }
         return new ReviewSession(rebuilt, _selection, context, reviewed);
@@ -88,5 +88,7 @@ internal sealed class ReviewSession
             new DryRunRow(group.Number, Reviewed[file.FullPath], _selection.Contains(file.FullPath)))).ToArray());
     }
 
-    internal List<VideoCandidate> SelectedFiles() => _selection.Select(path => _files[path]).ToList();
+    // Group order, so confirmation, removal and audit log follow what Review shows.
+    internal List<VideoCandidate> SelectedFiles() =>
+        Groups.SelectMany(group => group.Files).Where(file => _selection.Contains(file.FullPath)).ToList();
 }

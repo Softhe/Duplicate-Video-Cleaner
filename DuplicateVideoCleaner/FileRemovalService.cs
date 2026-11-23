@@ -117,7 +117,7 @@ internal static class FileRemovalService
     private static void ValidateSnapshot(VideoCandidate file)
     {
         if (file.IsProtected)
-            throw new IOException("Renamed clips are protected and cannot be removed.");
+            throw new IOException("Protected clips (no recording date in the file name) cannot be removed.");
         if (file.CreationTimeUtc == null || file.LastWriteTimeUtc == null || file.FileIdentity == null)
             throw new IOException("The file has no scan snapshot. Scan again before removing it.");
         var current = new FileInfo(file.FullPath);

@@ -12,7 +12,7 @@ internal static class PerformanceMeasurements
         Directory.CreateDirectory(root);
         try
         {
-            // Valid MP4 free atoms make staging measurable without user recordings.
+            // Valid MP4 free atoms make the inputs large without user recordings.
             const int padding = 8 * 1024 * 1024;
             for (var index = 0; index < 4; index++)
             {
@@ -36,8 +36,8 @@ internal static class PerformanceMeasurements
             var warm = await probe.ProbeManyAsync(candidates);
             var warmMetrics = probe.LastBatchMetrics;
             if (warm.Values.Any(value => value.Status != MetadataProbeStatus.Available) || warmMetrics is null ||
-                warmMetrics.CacheHits != candidates.Count || warmMetrics.Setup != TimeSpan.Zero || warmMetrics.StagedBytes != 0)
-                throw new InvalidOperationException("Warm metadata benchmark did not avoid staging and sandbox setup.");
+                warmMetrics.CacheHits != candidates.Count || warmMetrics.Setup != TimeSpan.Zero || warmMetrics.Parsed != 0)
+                throw new InvalidOperationException("Warm metadata benchmark did not avoid parsing and sandbox setup.");
 
             const int count = 10000, operations = 1000;
             var files = Enumerable.Range(0, count).Select(index => new VideoCandidate(Path.Combine(root, $"selection-{index}.mp4"),
@@ -77,7 +77,7 @@ internal static class PerformanceMeasurements
             File.WriteAllText(output, JsonSerializer.Serialize(record, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine($"Synthetic benchmark saved: {output}");
             Console.WriteLine($"Selection totals, legacy {legacyClock.Elapsed.TotalMilliseconds:F2} ms; indexed {indexedClock.Elapsed.TotalMilliseconds:F2} ms.");
-            Console.WriteLine($"Metadata cache hits: cold {coldMetrics?.CacheHits}, warm {warmMetrics.CacheHits}; warm staged bytes {warmMetrics.StagedBytes}.");
+            Console.WriteLine($"Metadata cache hits: cold {coldMetrics?.CacheHits}, warm {warmMetrics.CacheHits}; warm parsed {warmMetrics.Parsed}.");
             return 0;
         }
         finally

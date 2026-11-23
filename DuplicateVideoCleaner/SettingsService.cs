@@ -11,6 +11,7 @@ internal sealed record AppSettings
     public int ThresholdSeconds { get; init; } = 60;
     public KeepMode KeepMode { get; init; } = KeepMode.Oldest;
     public bool IncludeSubfolders { get; init; }
+    public bool ProtectUndatedClips { get; init; }
     public bool PermanentDeletion { get; init; }
     public int WindowX { get; init; } = -1;
     public int WindowY { get; init; } = -1;

@@ -111,7 +111,7 @@ internal static partial class RecoveryStore
         var candidate = new VideoCandidate(current.StoredPath, Path.GetFileName(current.StoredPath),
             current.LastWriteTimeUtc, TimestampSource.CreationTime, current.Size,
             current.CreationTimeUtc, current.LastWriteTimeUtc, current.FileIdentity);
-        using var file = FileSnapshot.OpenValidated(candidate);
+        using var file = FileSnapshot.OpenValidated(candidate, movedSinceSnapshot: true);
         using var journal = OpenJournal(current, "RESTORE ATTEMPT");
         try { FileSnapshot.Rename(file, originalDirectories.Last, Path.GetFileName(current.OriginalPath)); }
         catch { TryRecordFailure(journal, "RESTORE FAILED"); throw; }
@@ -128,7 +128,7 @@ internal static partial class RecoveryStore
             current.LastWriteTimeUtc, TimestampSource.CreationTime, current.Size,
             current.CreationTimeUtc, current.LastWriteTimeUtc, current.FileIdentity);
         using var journal = OpenJournal(current, "PURGE ATTEMPT");
-        try { FileSnapshot.DeleteValidated(candidate); }
+        try { FileSnapshot.DeleteValidated(candidate, movedSinceSnapshot: true); }
         catch { TryRecordFailure(journal, "PURGE FAILED"); throw; }
         return FinishJournal(journal, "PURGE SUCCESS");
     }

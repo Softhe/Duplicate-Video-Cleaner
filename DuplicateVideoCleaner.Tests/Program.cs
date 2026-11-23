@@ -35,6 +35,11 @@ tests.Add(("group confidence summarizes removal suggestions", Sync(RenamedFileTe
 tests.Add(("reconciliation drops protected-only groups only after successful removal", Sync(RenamedFileTests.ReconciliationDropsProtectedOnlyGroupsAfterSuccessfulRemoval)));
 tests.Add(("scanner cancellation and snapshots", Sync(ScannerRegressionTests.CancellationAndSnapshots)));
 tests.Add(("metadata real process cancellation and timeout", MetadataRegressionTests.ProcessesAndCancellation));
+tests.AddRange(ReviewRegressionTests.Cases);
+tests.Add(("recovery round trip on FAT and exFAT test volumes", VolumeRegressionTests.RecoveryRoundTripOnTestVolumes));
+tests.Add(("real ffprobe reads large files through a read-only handle", VolumeRegressionTests.RealProbeSeeksLargeFilesWithoutCopying));
+var only = Array.IndexOf(args, "--only") is var at and >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+if (only is not null) tests = tests.Where(test => test.Name.Contains(only, StringComparison.OrdinalIgnoreCase)).ToList();
 
 var failed = 0;
 foreach (var test in tests)

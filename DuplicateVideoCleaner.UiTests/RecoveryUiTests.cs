@@ -84,6 +84,54 @@ public sealed class RecoveryUiTests
         await completion.Task.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
+    [TestMethod]
+    public async Task RecoveryDialogRestoresAllSelectedFiles()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), "dvc-recovery-bulk-" + Guid.NewGuid().ToString("N"));
+            Exception? failure = null;
+            Directory.CreateDirectory(root);
+            try
+            {
+                var paths = Enumerable.Range(0, 4).Select(index => Path.Combine(root, $"2026-01-01 10-00-0{index} clip.mp4")).ToArray();
+                foreach (var path in paths) File.WriteAllText(path, Path.GetFileName(path));
+                foreach (var file in DuplicateScanner.Scan(root, 60, false, KeepMode.Oldest).Single().Files.Skip(1))
+                    RecoveryStore.MoveToRecovery(file);
+                using var dialog = new RecoveryDialog(root);
+                dialog.Shown += async (_, _) =>
+                {
+                    try { await VerifyBulkRestoreAsync(dialog, paths); }
+                    catch (Exception ex) { failure = ex; }
+                    finally { dialog.Close(); }
+                };
+                Application.Run(dialog);
+                if (failure is not null) throw failure;
+                completion.SetResult();
+            }
+            catch (Exception ex) { completion.TrySetException(ex); }
+            finally { try { Directory.Delete(root, true); } catch { } }
+        }) { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        await completion.Task.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
+    private static async Task VerifyBulkRestoreAsync(RecoveryDialog dialog, string[] paths)
+    {
+        var list = dialog.Controls.OfType<TableLayoutPanel>().Single().Controls.OfType<ListView>().Single();
+        await WaitUntil(() => list.Items.Count == 3);
+        Assert.IsTrue(list.MultiSelect, "Recovery should allow selecting several files.");
+        Descendants(dialog).OfType<Button>().Single(button => button.AccessibleName == "Select all recovery files").PerformClick();
+        Assert.AreEqual(3, list.SelectedIndices.Count, "Select all did not select every recovery file.");
+        var restore = Descendants(dialog).OfType<Button>().Single(button => button.AccessibleName == "Restore recovery file");
+        Assert.IsTrue(restore.Enabled);
+        restore.PerformClick();
+        await WaitUntil(() => list.Items.Count == 0 && Descendants(dialog).OfType<Label>().Any(label => label.Text.StartsWith("Restored 3 of 3 files.")));
+        foreach (var path in paths) Assert.AreEqual(Path.GetFileName(path), File.ReadAllText(path));
+    }
+
     private static async Task VerifyRestoreAsync(RecoveryDialog dialog, string first, string second)
     {
         var list = dialog.Controls.OfType<TableLayoutPanel>().Single().Controls.OfType<ListView>().Single();

@@ -21,7 +21,7 @@ internal static class ScannerRegressionTests
             if (result.Groups.Count != 0)
                 throw new Exception("Unrelated clips were grouped by their new copy creation times.");
             File.WriteAllText(Path.Combine(root, "Replay 2026-03-06 01-08-24.mp4"), "fixture");
-            var compared = DuplicateScanner.ScanDetailed(root, 60, false, KeepMode.Oldest).Groups.Single();
+            var compared = DuplicateScanner.ScanDetailed(root, 60, false, KeepMode.Oldest, protectUndated: true).Groups.Single();
             if (compared.Files.Where(file => file.IsProtected).Any(file =>
                 file.TimestampSource != TimestampSource.LastWriteTime || file.Timestamp != file.LastWriteTimeUtc!.Value.ToLocalTime()))
                 throw new Exception("Protected comparison candidates lost their original modification dates.");
@@ -61,9 +61,20 @@ internal static class ScannerRegressionTests
             if (process.ExitCode != 0) throw new Exception("Could not create junction fixture.");
             var linked = DuplicateScanner.ScanDetailed(root, 60, true, KeepMode.Oldest);
             if (!linked.Diagnostics.Any(d => d.Path == link)) throw new Exception("Junction was not reported.");
+            // A chosen folder that is itself a link is scanned through its resolved target,
+            // but the same link found inside the tree is still skipped.
             var linkedRoot = DuplicateScanner.ScanDetailed(link, 60, true, KeepMode.Oldest);
-            if (linkedRoot.Groups.Count != 0 || !linkedRoot.Diagnostics.Any(d => d.Path == link))
-                throw new Exception("Reparse root was traversed.");
+            if (linkedRoot.Groups.Count != 1 || !linkedRoot.Groups[0].Files.All(file => file.FullPath.StartsWith(link + Path.DirectorySeparatorChar)) ||
+                !linkedRoot.Diagnostics.Any(d => d.Path == Path.Combine(link, "loop")))
+                throw new Exception("A linked scan root was not scanned, or its nested link was followed.");
+            // Files under a linked parent folder are scanned and can be removed through it.
+            var linkedFile = linkedRoot.Groups[0].Files[0];
+            using (var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(linkedFile.FullPath)!))
+            {
+                try { Directory.Delete(link); throw new Exception("A pinned parent link could be removed."); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
             Directory.Delete(link);
             IEnumerable<string> PartiallyDenied(string directory)
             {

@@ -19,6 +19,7 @@ public sealed class ScanContextTests
             File.WriteAllText(Path.Combine(root, "another favorite.mp4"), "one");
             File.WriteAllText(Path.Combine(root, "2026-01-01 10-00-02 unmatched.mp4"), "longer");
             Find<TextBox>(form, "Video folder").Text = root;
+            Find<CheckBox>(form, ProtectUndated).Checked = true;
             await form.ScanAsync();
             void AssertSelection()
             {
@@ -28,8 +29,9 @@ public sealed class ScanContextTests
                 Assert.AreEqual(2, context.Rows.Count(row => row.Selected));
                 Assert.IsTrue(context.Rows.Where(row => row.Selected).All(row => !row.Video.Candidate.IsProtected && row.Video.MatchesProtectedCopy));
                 Assert.IsTrue(context.Rows.Single(row => row.Video.SuggestedKeep).Video.Candidate.IsProtected);
-                StringAssert.Contains(DryRunExporter.BuildCsv(context), "Protected renamed clip");
-                StringAssert.Contains(DryRunExporter.BuildText(context), "No metadata match to a protected clip; kept");
+                StringAssert.Contains(DryRunExporter.BuildCsv(context), "Protected clip (no recording date in its name)");
+                StringAssert.Contains(DryRunExporter.BuildText(context), "No metadata match to a protected clip and no other original in its time window; kept");
+                StringAssert.Contains(DryRunExporter.BuildText(context), "protecting clips without a recording date in the name");
             }
             AssertSelection();
             Find<Button>(form, "Select all files").PerformClick();
@@ -48,17 +50,56 @@ public sealed class ScanContextTests
     }
 
     [TestMethod]
-    public void RenamedProtectionWithoutMetadataSelectsNothing()
+    public void ProtectionWithoutMetadataKeepsProtectedClipsAndTimestampReview()
     {
         RunOnUiThread(async (form, root) =>
         {
             File.WriteAllText(Path.Combine(root, "favorite.mp4"), "one");
             Find<TextBox>(form, "Video folder").Text = root;
+            Find<CheckBox>(form, ProtectUndated).Checked = true;
             await form.ScanAsync();
+            var rows = form.BuildDryRunContext().Rows;
+            Assert.AreEqual(3, rows.Count);
+            // Without metadata no copy can be confirmed, but the two dated originals are
+            // still reviewed by timestamp among themselves; the protected clip is kept.
+            Assert.AreEqual("2026-01-01 10-00-01 second.mp4", rows.Single(row => row.Video.SuggestRemoval).Video.Candidate.RelativePath);
             Find<Button>(form, "Select all files").PerformClick();
-            Assert.IsFalse(form.BuildDryRunContext().Rows.Any(row => row.Selected));
+            Assert.IsFalse(form.BuildDryRunContext().Rows.Any(row => row.Selected && row.Video.Candidate.IsProtected));
         });
     }
+
+    [TestMethod]
+    public void UndatedClipsAreReviewedByDefaultAndTheSettingPersists()
+    {
+        RunOnUiThread(async (form, root) =>
+        {
+            foreach (var path in Directory.EnumerateFiles(root, "*.mp4")) File.Delete(path);
+            foreach (var name in new[] { "GOPR0001.MP4", "GOPR0002.MP4" }) File.WriteAllText(Path.Combine(root, name), name);
+            Find<TextBox>(form, "Video folder").Text = root;
+            Assert.IsFalse(Find<CheckBox>(form, ProtectUndated).Checked, "Protection must be opt-in.");
+            await form.ScanAsync();
+            var rows = form.BuildDryRunContext().Rows;
+            Assert.AreEqual(2, rows.Count);
+            Assert.IsFalse(rows.Any(row => row.Video.Candidate.IsProtected));
+            Assert.AreEqual(1, rows.Count(row => row.Selected), "The undated duplicate was not suggested for removal.");
+            Find<CheckBox>(form, ProtectUndated).Checked = true;
+            await form.ScanAsync();
+            Assert.IsTrue(new SettingsService(Path.Combine(root, "settings.json")).Load().ProtectUndatedClips || await SettingsWritten(root),
+                "The protection setting was not saved.");
+        });
+
+        static async Task<bool> SettingsWritten(string root)
+        {
+            for (var attempt = 0; attempt < 50; attempt++)
+            {
+                if (new SettingsService(Path.Combine(root, "settings.json")).Load().ProtectUndatedClips) return true;
+                await Task.Delay(50);
+            }
+            return false;
+        }
+    }
+
+    private const string ProtectUndated = "Protect clips without a recording date in the file name";
 
     [TestMethod]
     public void MetadataSuccessReachesReviewConfidenceAndExport()
@@ -136,7 +177,7 @@ public sealed class ScanContextTests
         RunOnUiThread(async (form, root) =>
         {
             var wait = Path.Combine(root, "wait-2026-01-01 10-00-02 pending.mp4");
-            File.WriteAllText(wait, "fixture");
+            File.WriteAllText(wait, "wait fixture");
             Find<TextBox>(form, "Video folder").Text = root;
             var scan = form.ScanAsync();
             await WaitForProbe(wait);
@@ -158,7 +199,7 @@ public sealed class ScanContextTests
         RunOnUiThread(async (form, root) =>
         {
             var wait = Path.Combine(root, "wait-2026-01-01 10-00-02 pending.mp4");
-            File.WriteAllText(wait, "fixture");
+            File.WriteAllText(wait, "wait fixture");
             Find<TextBox>(form, "Video folder").Text = root;
             var scan = form.ScanAsync();
             await WaitForProbe(wait);
