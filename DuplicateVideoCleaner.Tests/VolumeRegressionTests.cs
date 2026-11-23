@@ -33,15 +33,24 @@ internal static class VolumeRegressionTests
                 Check(restoreWarning is null && File.ReadAllText(remove.FullPath) == "remove", $"{fileSystem}: restore failed. {restoreWarning}");
                 var purgeWarning = RecoveryStore.Purge(entries.Single(entry => entry.OriginalPath == purge.FullPath));
                 Check(purgeWarning is null && RecoveryStore.List(root).Count == 0, $"{fileSystem}: purge failed. {purgeWarning}");
-                // A different file with the same name and size must still be rejected.
+                // A different payload with the same name, size and exact timestamps must still be
+                // rejected by restore and purge: the identity recorded after the move must match.
                 var again = DuplicateScanner.Scan(root, 60, true, KeepMode.Oldest).Single().Files.Single(file => file.FullPath == remove.FullPath);
                 RecoveryStore.MoveToRecovery(again);
                 var stored = RecoveryStore.List(root).Single();
+                var replacement = Path.Combine(Path.GetDirectoryName(stored.StoredPath)!, "replacement.tmp");
+                File.WriteAllText(replacement, "REMOVE");
                 File.Delete(stored.StoredPath);
-                File.WriteAllText(stored.StoredPath, "REMOVE");
-                File.SetCreationTimeUtc(stored.StoredPath, stored.CreationTimeUtc.AddMinutes(5));
+                File.Move(replacement, stored.StoredPath);
+                File.SetCreationTimeUtc(stored.StoredPath, stored.CreationTimeUtc);
+                File.SetLastWriteTimeUtc(stored.StoredPath, stored.LastWriteTimeUtc);
+                Check(new FileInfo(stored.StoredPath).Length == stored.Size && File.GetCreationTimeUtc(stored.StoredPath) == stored.CreationTimeUtc &&
+                      File.GetLastWriteTimeUtc(stored.StoredPath) == stored.LastWriteTimeUtc, $"{fileSystem}: the replacement fixture differs in size or time.");
                 try { RecoveryStore.Restore(stored); throw new Exception($"{fileSystem}: a substituted payload was restored."); }
                 catch (IOException ex) when (ex.Message.Contains("changed")) { }
+                try { RecoveryStore.Purge(stored); throw new Exception($"{fileSystem}: a substituted payload was purged."); }
+                catch (IOException ex) when (ex.Message.Contains("changed")) { }
+                Check(File.Exists(stored.StoredPath) && !File.Exists(remove.FullPath), $"{fileSystem}: a rejected payload was moved or deleted.");
                 Console.WriteLine($"PASS recovery round trip on {fileSystem} ({volume})");
             }
             finally { Directory.Delete(root, true); }

@@ -14,19 +14,16 @@ internal static class FileSnapshot
         return $"{info.VolumeSerialNumber:X8}:{info.FileIndexHigh:X8}{info.FileIndexLow:X8}";
     }
 
-    internal static void DeleteValidated(VideoCandidate file, bool movedSinceSnapshot = false)
+    internal static void DeleteValidated(VideoCandidate file)
     {
         using var directories = PinDirectories(Path.GetDirectoryName(Path.GetFullPath(file.FullPath))!);
-        using var handle = OpenValidated(file, movedSinceSnapshot);
+        using var handle = OpenValidated(file);
         var disposition = new FileDispositionInformation { DeleteFile = true };
         if (!SetFileInformationByHandle(handle, 4, ref disposition, 1))
             throw new IOException("The validated file could not be removed.", new Win32Exception(Marshal.GetLastWin32Error()));
     }
 
-    // movedSinceSnapshot: the file was renamed into another folder after its snapshot
-    // (Recovery). FAT-family volumes derive file IDs from directory entries, so the ID
-    // changes on such a move; there the volume, size and timestamps must still match.
-    internal static SafeFileHandle OpenValidated(VideoCandidate file, bool movedSinceSnapshot = false)
+    internal static SafeFileHandle OpenValidated(VideoCandidate file)
     {
         // Keep validation and deletion bound to one object, even if its path is replaced.
         const uint genericRead = 0x80000000, deleteAccess = 0x00010000;
@@ -40,19 +37,17 @@ internal static class FileSnapshot
         {
             if (handle.IsInvalid)
                 throw new IOException("The file could not be opened safely for removal.", new Win32Exception(Marshal.GetLastWin32Error()));
-            ValidateReadHandle(handle, file, movedSinceSnapshot);
+            ValidateReadHandle(handle, file);
             return handle;
         }
         catch { handle.Dispose(); throw; }
     }
 
-    internal static void ValidateReadHandle(SafeFileHandle handle, VideoCandidate expected, bool movedSinceSnapshot = false)
+    internal static void ValidateReadHandle(SafeFileHandle handle, VideoCandidate expected)
     {
         var actual = CaptureReadHandle(handle, expected.FullPath);
         var fatFamily = IsFatFamily(handle);
-        var identityMatches = actual.FileIdentity == expected.FileIdentity ||
-            movedSinceSnapshot && fatFamily && VolumeOf(actual.FileIdentity) == VolumeOf(expected.FileIdentity);
-        if (!identityMatches || actual.Size != expected.Size ||
+        if (actual.FileIdentity != expected.FileIdentity || actual.Size != expected.Size ||
             !TimesMatch(actual.CreationTimeUtc, actual.LastWriteTimeUtc, expected.CreationTimeUtc, expected.LastWriteTimeUtc, fatFamily))
             throw new IOException("The file changed since the scan. Scan again before continuing.");
     }
@@ -66,8 +61,6 @@ internal static class FileSnapshot
         var shift = c - ec;
         return shift == w - ew && (shift == TimeSpan.FromHours(1) || shift == TimeSpan.FromHours(-1));
     }
-
-    private static string? VolumeOf(string? identity) => identity is null ? null : identity.Split(':')[0];
 
     internal static bool IsFatFamily(SafeFileHandle handle)
     {
@@ -160,11 +153,14 @@ internal static class FileSnapshot
         using var target = CreateFile(ExtendedPath(path), 0x80, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
         if (target.IsInvalid) throw new IOException("A linked parent directory could not be resolved.", new Win32Exception(Marshal.GetLastWin32Error()));
         var buffer = new System.Text.StringBuilder(32768);
-        // Volume GUID paths also work for mounted volumes without a drive letter.
-        var length = GetFinalPathNameByHandle(target, buffer, (uint)buffer.Capacity, 1);
-        if (length == 0 || length >= buffer.Capacity)
-            throw new IOException("A linked parent directory could not be resolved.", new Win32Exception(Marshal.GetLastWin32Error()));
-        return buffer.ToString();
+        // DOS names cover drive letters and network shares (\\?\UNC\...), which have no
+        // volume GUID. GUID paths cover mounted volumes without a drive letter.
+        foreach (var flags in new uint[] { 0, 1 })
+        {
+            var length = GetFinalPathNameByHandle(target, buffer, (uint)buffer.Capacity, flags);
+            if (length > 0 && length < buffer.Capacity) return buffer.ToString();
+        }
+        throw new IOException("A linked parent directory could not be resolved.", new Win32Exception(Marshal.GetLastWin32Error()));
     }
 
     internal static uint ReparseTag(SafeFileHandle handle)

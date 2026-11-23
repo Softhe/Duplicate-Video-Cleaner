@@ -3,7 +3,14 @@ using System.Text.Json;
 namespace DuplicateVideoCleaner;
 
 internal sealed record RecoveryEntry(string OriginalPath, string StoredPath, string FileIdentity,
-    DateTimeOffset RemovedAt, string ManifestPath, long Size, DateTime CreationTimeUtc, DateTime LastWriteTimeUtc);
+    DateTimeOffset RemovedAt, string ManifestPath, long Size, DateTime CreationTimeUtc, DateTime LastWriteTimeUtc,
+    string? StoredIdentity = null)
+{
+    // FAT-family volumes derive file IDs from directory entries, so a file's ID changes when
+    // it moves into Recovery. The ID read after that move is the durable identity of the
+    // payload; entries written before it was recorded fall back to the original ID.
+    internal string PayloadIdentity => StoredIdentity ?? FileIdentity;
+}
 
 internal static partial class RecoveryStore
 {
@@ -26,11 +33,31 @@ internal static partial class RecoveryStore
             candidate.CreationTimeUtc!.Value, candidate.LastWriteTimeUtc!.Value);
         // Persist the original location before the object-bound move. A crash leaves
         // either an untouched source or a payload with its durable restoration intent.
-        using var intent = new FileStream(entry.ManifestPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
-        JsonSerializer.Serialize(intent, entry);
-        intent.Flush(flushToDisk: true);
+        WriteManifest(entry.ManifestPath, entry);
         beforeMove?.Invoke(entry);
         FileSnapshot.Rename(file, entryDirectories.Last, "payload.dvc");
+        // The held handle shares read access only, so the payload cannot be replaced or
+        // renamed while its new identity is read and recorded.
+        try
+        {
+            var stored = entry with { StoredIdentity = FileSnapshot.GetIdentity(entry.StoredPath) };
+            if (stored.StoredIdentity == entry.FileIdentity) return;
+            var temporary = Path.Combine(entryDirectory, "intent.tmp");
+            WriteManifest(temporary, stored);
+            File.Move(temporary, entry.ManifestPath, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The removal itself succeeded. On FAT-family volumes such an entry cannot be
+            // restored by the app; its payload stays in the entry folder.
+        }
+    }
+
+    private static void WriteManifest(string path, RecoveryEntry entry)
+    {
+        using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+        JsonSerializer.Serialize(stream, entry);
+        stream.Flush(flushToDisk: true);
     }
 
     internal static IReadOnlyList<RecoveryEntry> List(string root, Action<string>? diagnostic = null,
@@ -110,8 +137,8 @@ internal static partial class RecoveryStore
         using var originalDirectories = FileSnapshot.PinDirectories(Path.GetDirectoryName(current.OriginalPath)!);
         var candidate = new VideoCandidate(current.StoredPath, Path.GetFileName(current.StoredPath),
             current.LastWriteTimeUtc, TimestampSource.CreationTime, current.Size,
-            current.CreationTimeUtc, current.LastWriteTimeUtc, current.FileIdentity);
-        using var file = FileSnapshot.OpenValidated(candidate, movedSinceSnapshot: true);
+            current.CreationTimeUtc, current.LastWriteTimeUtc, current.PayloadIdentity);
+        using var file = FileSnapshot.OpenValidated(candidate);
         using var journal = OpenJournal(current, "RESTORE ATTEMPT");
         try { FileSnapshot.Rename(file, originalDirectories.Last, Path.GetFileName(current.OriginalPath)); }
         catch { TryRecordFailure(journal, "RESTORE FAILED"); throw; }
@@ -126,9 +153,9 @@ internal static partial class RecoveryStore
         if (current != entry) throw new IOException("The recovery entry changed. Refresh the recovery list.");
         var candidate = new VideoCandidate(current.StoredPath, Path.GetFileName(current.StoredPath),
             current.LastWriteTimeUtc, TimestampSource.CreationTime, current.Size,
-            current.CreationTimeUtc, current.LastWriteTimeUtc, current.FileIdentity);
+            current.CreationTimeUtc, current.LastWriteTimeUtc, current.PayloadIdentity);
         using var journal = OpenJournal(current, "PURGE ATTEMPT");
-        try { FileSnapshot.DeleteValidated(candidate, movedSinceSnapshot: true); }
+        try { FileSnapshot.DeleteValidated(candidate); }
         catch { TryRecordFailure(journal, "PURGE FAILED"); throw; }
         return FinishJournal(journal, "PURGE SUCCESS");
     }

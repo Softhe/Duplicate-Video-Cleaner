@@ -556,7 +556,7 @@ public sealed class MainForm : Form
         var selected = SelectedFiles();
         if (selected.Count == 0) return;
         var permanent = _deletionMode.SelectedIndex == 1;
-        var groupsWithoutSurvivors = _groups.Count(group => group.Files.All(file => _selectedPaths.Contains(file.FullPath)));
+        var groupsWithoutSurvivors = Session.GroupsWithoutSurvivors();
         using var confirmation = new DeletionConfirmationDialog(selected, permanent, FormatSize(selected.Sum(file => file.Size)), groupsWithoutSurvivors);
         if (confirmation.ShowDialog(this) != DialogResult.OK) return;
         if (!CanWriteLog(out var logError))

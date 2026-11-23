@@ -13,6 +13,7 @@ internal static class ReviewRegressionTests
         ("metadata unavailable keeps timestamp review for originals near protected clips", Sync(MetadataUnavailableKeepsTimestampReview)),
         ("reconciliation keeps per-window keepers in protected groups", Sync(ReconciliationKeepsWindowKeepers)),
         ("case-variant paths are reported instead of failing the scan", Sync(CaseVariantPaths)),
+        ("selecting every original of a time window warns despite a protected clip", Sync(WindowWithoutSurvivorWarns)),
         ("selected files follow review group order", Sync(SelectedFilesFollowGroupOrder)),
         ("directory pins block deletion and rename of empty directories", Sync(DirectoryPinsBlockChanges)),
         ("scan and probe accept files another program is writing", Sync(ScanAcceptsActiveWriters))
@@ -51,7 +52,10 @@ internal static class ReviewRegressionTests
             var result = DuplicateScanner.GetEffectiveTimestamp(name, new DateTime(2000, 1, 1));
             Check(result.Source == TimestampSource.FileName && result.Timestamp == expected, $"Filename date not recognised: {name} -> {result.Timestamp:O}");
         }
-        foreach (var name in new[] { "GOPR0001.MP4", "DJI_0001.MP4", "clip 2026-13-15 14-30-05.mp4", "12345678_123456.mp4", "VID_20260230_120000.mp4", "x20261015_1430059.mp4" })
+        foreach (var name in new[] { "GOPR0001.MP4", "DJI_0001.MP4", "clip 2026-13-15 14-30-05.mp4", "12345678_123456.mp4", "VID_20260230_120000.mp4", "x20261015_1430059.mp4",
+                     // Arabic-Indic and full-width digits fall back to file times instead of failing the scan.
+                     "٢٠٢٦-١٠-١٥ ١٤-٣٠-٠٥.mp4",
+                     "２０２６１０１５_１４３００５.mp4" })
             Check(DuplicateScanner.GetEffectiveTimestamp(name, new DateTime(2000, 1, 1)).Source != TimestampSource.FileName, $"Invalid filename date accepted: {name}");
     }
 
@@ -165,6 +169,26 @@ internal static class ReviewRegressionTests
         Check(result.Groups.Single().Files.Count == 2 && result.Diagnostics.Any(d => d.Message.Contains("letter case")),
             "A case-variant path failed the scan or was not reported.");
     });
+
+    private static void WindowWithoutSurvivorWarns()
+    {
+        var files = new[]
+        {
+            Candidate("renamed favourite.mp4", 0, 500, isProtected: true),
+            Candidate("Replay 2026-01-01 10-00-01.mp4", 1, 100),
+            Candidate("Replay 2026-01-01 10-00-02.mp4", 2, 101)
+        };
+        var group = new DuplicateGroup(1, files, files[0]);
+        var reviewed = Review(group, Metadata(10));
+        reviewed[files[0].FullPath] = reviewed[files[0].FullPath] with { Metadata = Metadata(99) };
+        RenamedFilePolicy.Apply(group, reviewed);
+        var selection = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { files[2].FullPath };
+        var session = new ReviewSession([group], selection, null, reviewed);
+        Check(session.GroupsWithoutSurvivors() == 0, "The window keeper survives, but a warning was raised.");
+        session.SetSelected(files[1], true);
+        Check(session.SelectedCount == 2 && session.GroupsWithoutSurvivors() == 1,
+            "Selecting every original of a time window was hidden by an unrelated protected clip.");
+    }
 
     private static void SelectedFilesFollowGroupOrder()
     {

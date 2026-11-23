@@ -263,12 +263,13 @@ public static partial class DuplicateScanner
         return result;
     }
 
-    [GeneratedRegex(@"(?<!\d)(?<y>\d{4})-(?<mo>\d{2})-(?<d>\d{2})[ _T](?<h>\d{2})[-.](?<mi>\d{2})[-.](?<s>\d{2})(?!\d)", RegexOptions.CultureInvariant)]
+    // [0-9], not \d: \d also matches non-ASCII decimal digits, which int.Parse rejects.
+    [GeneratedRegex(@"(?<![0-9])(?<y>[0-9]{4})-(?<mo>[0-9]{2})-(?<d>[0-9]{2})[ _T](?<h>[0-9]{2})[-.](?<mi>[0-9]{2})[-.](?<s>[0-9]{2})(?![0-9])", RegexOptions.CultureInvariant)]
     private static partial Regex DashedTimestampRegex();
 
-    [GeneratedRegex(@"(?<!\d)(?<y>\d{4})\.(?<mo>\d{2})\.(?<d>\d{2}) - (?<h>\d{2})\.(?<mi>\d{2})\.(?<s>\d{2})(?!\d)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<![0-9])(?<y>[0-9]{4})\.(?<mo>[0-9]{2})\.(?<d>[0-9]{2}) - (?<h>[0-9]{2})\.(?<mi>[0-9]{2})\.(?<s>[0-9]{2})(?![0-9])", RegexOptions.CultureInvariant)]
     private static partial Regex ShadowPlayTimestampRegex();
 
-    [GeneratedRegex(@"(?<!\d)(?<y>(?:19|20)\d{2})(?<mo>\d{2})(?<d>\d{2})[_-](?<h>\d{2})(?<mi>\d{2})(?<s>\d{2})(?:\d{3})?(?!\d)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<![0-9])(?<y>(?:19|20)[0-9]{2})(?<mo>[0-9]{2})(?<d>[0-9]{2})[_-](?<h>[0-9]{2})(?<mi>[0-9]{2})(?<s>[0-9]{2})(?:[0-9]{3})?(?![0-9])", RegexOptions.CultureInvariant)]
     private static partial Regex CompactTimestampRegex();
 }

@@ -60,7 +60,7 @@ internal sealed class DeletionConfirmationDialog : Form
         var previewCard = new Panel { Dock = DockStyle.Fill, Padding = new Padding(14), BackColor = AppTheme.CardBack, AccessibleName = "Selected file preview" };
         if (groupsWithoutSurvivors > 0)
         {
-            consequence.Text += $"\nWarning: All files are selected in {groupsWithoutSurvivors} group(s). No file will remain in those groups.";
+            consequence.Text += $"\nWarning: Every copy of a recording is selected in {groupsWithoutSurvivors} group(s). No file will remain of those recordings.";
             consequence.ForeColor = AppTheme.DangerText;
         }
         consequence.MaximumSize = new Size(650, 0);
