@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.0 - Unreleased
+
+### Redesigned interface
+
+- Replaced the whole interface with a Windows 11 style design: a navigation pane, and Scan, Review and Activity & Recovery pages. Scanning, protection, removal and Recovery rules are unchanged.
+- Dark theme by default, a light theme, and a **System** option that follows the Windows app mode. Settings files from earlier versions open in the dark theme.
+- Scan: a drop area with a path box that remembers the last five folders, the grouping rules in one card, and a progress bar with the current file while metadata is read.
+- Review: a group list beside the selected group's files. Each file shows its role (KEEP, REMOVE or PROTECTED), its timestamp and source, and its resolution, duration and size, with ✓ for a match and ≠ for a difference from the file it is compared with. Lists are virtualised instead of paged.
+- Confirmation is an in-window dialog. Cancel is the focused default; Enter and Esc never confirm. It lists every selected file, names the Recovery folder and warns when every copy of a recording is selected.
+- Recovery moved from a separate window into the Activity & Recovery page, next to the session activity. Permanent deletion asks first, and restores and deletions appear in the activity log.
+
+### Video thumbnails
+
+- Review shows one frame per file. ffmpeg runs in the same AppContainer sandbox as ffprobe, reads only the validated read-only handle, and returns a fixed-size raw frame, so the app parses no media or image format itself. Changed files, failed decodes and timeouts keep a placeholder.
+- Thumbnails load only for files on screen, pause during scans and removals, and are cached in `%LOCALAPPDATA%\DuplicateVideoCleaner\Thumbnails` (up to 96 MB). Uninstall removes the cache. Settings can turn thumbnails off.
+- Both packages now include `ffmpeg.exe` from the same pinned LGPL build (about 0.5 MB, as it shares ffprobe's libraries).
+
+### Internal
+
+- Moved scanning, review, removal, Recovery and settings into `DuplicateVideoCleaner.Core` with new workflow tests, and rebuilt the app on WPF without third-party UI libraries. The self-contained app is about 24 MB larger than 1.1.3 because it includes the WPF runtime.
+- UI tests now cover the view models on a WPF dispatcher and drive the packaged app through UI Automation. Release qualification upgrades from the published 1.1.3 setup.
+
 ## 1.1.3 - 2026-11-23
 
 ### Fixes for regressions in 1.1.2

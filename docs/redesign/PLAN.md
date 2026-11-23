@@ -13,7 +13,7 @@ Goal: replace the whole visual layer. Scanner, metadata probe, sandbox, removal,
 | UI tests (FlaUI/UIA) | Kept: same accessible names via `AutomationProperties.Name` | Kept, but more UIA differences | Kept |
 | Effort | Medium: new XAML views, reuse all logic | High: new framework, unpackaged-app quirks (pickers, drag and drop) | High, and the result stays fragile |
 
-WPF keeps the release pipeline (`build/BuildRelease.ps1` publishes `PublishSingleFile=true`) and adds no third-party code, which matters given the security audit. The few Windows 11 controls WPF lacks (navigation pane, toggle switch, content dialog) are small styled controls built in the project. `ThemeMode` is still flagged experimental (`WPF0001`), so the build suppresses that one diagnostic. Our own colour resources (one dictionary per theme) override the defaults, so the look does not depend on what the experimental API ships.
+WPF keeps the release pipeline (`build/BuildRelease.ps1` publishes `PublishSingleFile=true`) and adds no third-party code, which matters given the security audit. The few Windows 11 controls WPF lacks (navigation pane, toggle switch, content dialog) are small styled controls built in the project. **As built:** the app does not use the experimental `ThemeMode` API. Every control it uses has its own template in `Themes/Controls.xaml`, coloured from `Themes/Dark.xaml` or `Themes/Light.xaml`, so the look is exact in both themes and does not depend on an experimental API. The window keeps the native title bar, coloured through DWM, so snap layouts and system menus keep working.
 
 ## 2. Style rules (v3)
 
@@ -128,7 +128,7 @@ Each phase ends green: `DuplicateVideoCleaner.Tests` and `DuplicateVideoCleaner.
 
 - **Regressions in safety behaviour.** The removal and protection rules are the product. Mitigation: Phase 1 moves logic without changing it and adds tests before any XAML exists.
 - **UI test churn.** FlaUI finds controls by name, not by framework, so most tests survive if names are kept. Where WPF exposes a different control type (for example a list item instead of a panel), update those tests in the same commit as the page.
-- **Fluent theme API changes.** `ThemeMode` is experimental. Our own colour resources limit how much a future .NET change can move the look.
+- **Fluent theme API changes.** Avoided: the app uses its own control templates instead of the experimental `ThemeMode`.
 - **Performance with large libraries.** `LargeLibraryTests` and `docs/PERFORMANCE.md` set the bar. Virtualisation should improve on today's paging; measure it with `build/Measure-Performance.ps1`.
 
 - **Thumbnail decoding of untrusted media.** It runs only inside the AppContainer sandbox with strict output limits. Include it in the security audit for 1.2.0.
@@ -139,3 +139,19 @@ Each phase ends green: `DuplicateVideoCleaner.Tests` and `DuplicateVideoCleaner.
 - **Framework:** WPF on .NET 10 with the built-in Fluent theme.
 - **Thumbnails:** enabled and bundled in 1.2.0 (sandboxed ffmpeg).
 - **Old interface:** replaced outright in 1.2.0, with no WinForms fallback.
+
+## 7. Status
+
+All five phases are implemented on this branch:
+
+1. Core extraction with workflow tests.
+2. WPF shell, dark and light themes, theme setting.
+3. Scan, Review, confirmation dialog, Activity & Recovery.
+4. Sandboxed thumbnails, cache, packaging of `ffmpeg.exe`.
+5. Version 1.2.0, changelog, README and screenshots, release qualification against the published 1.1.3 setup.
+
+The mockups are the visual reference. Deliberate differences in the build:
+
+- Keepers keep a **Remove this file** checkbox, because Select All and manual overrides can select them.
+- Recovery has no duration column (Recovery records do not store metadata).
+- Thumbnails are 320×180 frames cropped to 16:9.

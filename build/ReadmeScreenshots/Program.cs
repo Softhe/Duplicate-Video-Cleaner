@@ -38,34 +38,37 @@ try
     using var automation = new UIA3Automation();
     var window = app.GetMainWindow(automation, TimeSpan.FromSeconds(10)) ?? throw new IOException("Application window did not appear.");
     window.Focus();
-    var folder = Find("Video folder").AsTextBox();
-    folder.Text = recordings;
+    Find("Video folder").Patterns.Value.Pattern.SetValue(recordings);
     Find("Scan videos").Focus();
     Capture("scan", window);
     Invoke("Scan videos");
     Wait("Review workspace");
-    Wait("Expand group 1");
-    Capture("review", window);
-    Invoke("Expand group 1");
     Wait("File: 2026-10-10 18-30-25 recording-copy.mp4");
-    Capture("review-details", window);
-    Find("Move selected files to Recovery").AsButton().Click();
-    var dialog = Retry.WhileNull(() => automation.GetDesktop().FindFirstDescendant(cf =>
-        cf.ByName("Confirm deletion").And(cf.ByControlType(ControlType.Window)))?.AsWindow(), TimeSpan.FromSeconds(10)).Result
-        ?? throw new IOException("Confirmation dialog did not appear.");
-    Capture("confirmation", dialog);
-    dialog.FindFirstDescendant(cf => cf.ByName("Cancel"))!.AsButton().Invoke();
-    Wait("Review workspace");
+    Thread.Sleep(3000); // thumbnails
+    Capture("review", window);
+    Invoke("Move selected files to Recovery");
+    Wait("Move 1 file to Recovery?");
+    Capture("confirmation", window);
+    Invoke("Cancel");
+    WaitGone("Move 1 file to Recovery?");
     for (var day = 11; day <= 15; day++) AddPair(day);
     Invoke("Rescan videos");
-    Wait("Expand group 6");
+    if (Retry.WhileNull(() => window.FindAllDescendants().FirstOrDefault(element => element.Name?.StartsWith("Duplicate group 6;", StringComparison.Ordinal) == true),
+        TimeSpan.FromSeconds(10)).Result is null) throw new IOException("The rescan did not list six groups.");
+    Thread.Sleep(2000);
     Capture("review-six-groups", window);
-    window.Focus();
-    Keyboard.Press(VirtualKeyShort.CONTROL);
-    Keyboard.Type(VirtualKeyShort.KEY_3);
-    Keyboard.Release(VirtualKeyShort.CONTROL);
+    Shortcut(VirtualKeyShort.KEY_3);
     Wait("Activity workspace");
     Capture("activity", window);
+    Find("Settings and about").Patterns.Toggle.Pattern.Toggle();
+    var light = Retry.WhileNull(() => automation.GetDesktop().FindFirstDescendant(cf => cf.ByName("Light theme")), TimeSpan.FromSeconds(5)).Result
+        ?? throw new IOException("Theme setting did not appear.");
+    light.Patterns.SelectionItem.Pattern.Select();
+    Keyboard.Press(VirtualKeyShort.ESCAPE);
+    Shortcut(VirtualKeyShort.KEY_2);
+    Wait("Review workspace");
+    Thread.Sleep(1000);
+    Capture("review-light", window);
     if (Directory.EnumerateFiles(recordings, "*.mp4").Count() != 12)
         throw new IOException("Screenshot capture unexpectedly changed the media fixtures.");
     Console.WriteLine($"Captured six application-only screenshots in {output}");
@@ -84,6 +87,18 @@ try
             throw new IOException($"Control did not appear: {name}");
     }
     void Invoke(string name) => Find(name).AsButton().Invoke();
+    void WaitGone(string name)
+    {
+        if (!Retry.WhileTrue(() => window.FindFirstDescendant(cf => cf.ByName(name)) is not null, TimeSpan.FromSeconds(10)).Success)
+            throw new IOException($"Control did not close: {name}");
+    }
+    void Shortcut(VirtualKeyShort key)
+    {
+        window.Focus();
+        Keyboard.Press(VirtualKeyShort.CONTROL);
+        Keyboard.Type(key);
+        Keyboard.Release(VirtualKeyShort.CONTROL);
+    }
     void Capture(string name, Window target)
     {
         target.Focus();

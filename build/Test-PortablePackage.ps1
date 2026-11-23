@@ -22,7 +22,7 @@ try {
         if (-not $target.StartsWith($payload + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Hash entry escapes portable directory.' }
         if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $expected) { throw "Portable hash mismatch: $target" }
     }
-    foreach ($image in @('scan.png', 'review.png', 'review-details.png', 'confirmation.png', 'activity.png')) {
+    foreach ($image in @('scan.png', 'review.png', 'review-light.png', 'confirmation.png', 'activity.png')) {
         if (-not (Test-Path -LiteralPath (Join-Path $payload "docs\screenshots\$image"))) { throw "Bundled README image missing: $image" }
     }
     & (Join-Path $payload 'tools\ffprobe.exe') -version | Out-Null

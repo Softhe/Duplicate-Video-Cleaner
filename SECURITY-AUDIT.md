@@ -59,3 +59,14 @@ dotnet test DuplicateVideoCleaner.UiTests -c Release
 dotnet list DuplicateVideoCleaner.slnx package --vulnerable --include-transitive --source https://api.nuget.org/v3/index.json
 git diff --check
 ```
+
+## 1.2.0 addendum: thumbnails and the WPF interface
+
+This addendum records the changes in 1.2.0 that affect the attack surface. It is not a new audit.
+
+- **New parser invocation.** `ffmpeg.exe` decodes one frame per video. It runs through the same `WindowsProbeSandbox` as ffprobe: a zero-capability AppContainer, a one-process job with memory and CPU limits, only the validated read-only media handle as standard input (`-protocol_whitelist fd -i fd:`), and a 15-second deadline. Files that changed since the scan are rejected before launch.
+- **No in-process decoding of sandbox output.** ffmpeg writes exactly 320×180×4 bytes of raw BGRA to stdout. The broker rejects shorter or longer output and wraps the buffer with `BitmapSource.Create`; no media, PNG or other image parser runs in the app process on data from the sandbox. Diagnostics are bounded to 64 KiB.
+- **Cache.** Frames are deflated into `%LOCALAPPDATA%\DuplicateVideoCleaner\Thumbnails`, keyed by a SHA-256 of the scan snapshot (path, size, times, file ID). Entries are only ever read back as exactly one frame-sized buffer; damaged entries are ignored. The folder is limited to 96 MB and removed on uninstall.
+- **Sandbox lifetime.** The thumbnail sandbox is released after 20 idle seconds and on exit. A crash leaves it to the existing abandoned-sandbox cleanup.
+- **Interface.** The WPF interface adds no third-party packages. Destructive confirmations keep Cancel as the focused default and bind Enter and Esc to it.
+- **Not done.** No fuzzing of ffmpeg's decoders and no fresh review of FFmpeg vulnerabilities beyond the pinned build. As with ffprobe, the sandbox is the mitigation for decoder bugs.

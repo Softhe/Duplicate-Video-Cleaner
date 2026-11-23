@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>DuplicateVideoCleaner</RootNamespace>
     <AssemblyName>DuplicateVideoCleaner.Core</AssemblyName>
-    <Version>1.1.3</Version>
+    <Version>1.2.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="DuplicateVideoCleaner" />
