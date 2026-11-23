@@ -4,7 +4,7 @@ using System.Text;
 namespace DuplicateVideoCleaner;
 
 internal sealed record DryRunRow(int Group, ReviewedVideo Video, bool Selected);
-internal sealed record DryRunContext(string Root, int ThresholdSeconds, KeepMode KeepMode, bool IncludeSubfolders, IReadOnlyList<DryRunRow> Rows);
+internal sealed record DryRunContext(string Root, int ThresholdSeconds, KeepMode KeepMode, bool IncludeSubfolders, IReadOnlyList<DryRunRow> Rows, bool ProtectUndated = false);
 internal sealed record ExportResult(string? CsvPath, string? TextPath, IReadOnlyList<string> Errors);
 
 internal static class DryRunExporter
@@ -61,7 +61,7 @@ internal static class DryRunExporter
         var selected = context.Rows.Where(row => row.Selected).ToList();
         builder.WriteLine("Duplicate Video Cleaner — Dry Run");
         builder.WriteLine($"Folder: {context.Root}");
-        builder.WriteLine($"Settings: {context.ThresholdSeconds}s threshold; keep {context.KeepMode}; {(context.IncludeSubfolders ? "including subfolders" : "current folder only")}");
+        builder.WriteLine($"Settings: {context.ThresholdSeconds}s threshold; keep {context.KeepMode}; {(context.IncludeSubfolders ? "including subfolders" : "current folder only")}; {(context.ProtectUndated ? "protecting clips without a recording date in the name" : "undated clips not protected")}");
         builder.WriteLine($"Groups: {context.Rows.Select(row => row.Group).Distinct().Count()}; files: {context.Rows.Count}; selected: {selected.Count}; selected size: {MainForm.FormatSize(selected.Sum(row => row.Video.Candidate.Size))}");
         foreach (var confidence in Enum.GetValues<DuplicateConfidence>()) builder.WriteLine($"{confidence} confidence: {context.Rows.Count(row => row.Video.Confidence == confidence)}");
         builder.WriteLine();

@@ -20,10 +20,16 @@ internal static class MetadataRegressionTests
         if (args.Length > 0 && args[0] == "--sandbox-check")
         {
             var result = new Dictionary<string, bool>();
-            result["selectedRead"] = File.ReadAllText(args[1]) == "selected fixture";
+            result["selectedRead"] = ReadStandardInput() == "selected fixture";
+            result["originalPathReadDenied"] = Denied(() => File.ReadAllText(args[1]));
             result["privateReadDenied"] = Denied(() => File.ReadAllText(args[2]));
             result["privateWriteDenied"] = Denied(() => File.WriteAllText(args[2], "changed"));
-            result["selectedWriteDenied"] = Denied(() => File.WriteAllText(args[1], "changed"));
+            result["selectedWriteDenied"] = Denied(() =>
+            {
+                using var input = new FileStream(new Microsoft.Win32.SafeHandles.SafeFileHandle(GetStdHandle(-10), false), FileAccess.Write, 1);
+                input.Write("changed"u8);
+                input.Flush();
+            }) && Denied(() => File.WriteAllText(args[1], "changed"));
             result["environmentClean"] = Environment.GetEnvironmentVariable("DVC_TEST_SECRET_SENTINEL") is null;
             try
             {
@@ -45,28 +51,40 @@ internal static class MetadataRegressionTests
         }
         if (args.Length > 0 && args[0] == "--sandbox-child") { Console.WriteLine("Unexpected child executed."); exitCode = 99; return true; }
         if (args.Length == 0 || args[0] != "-v") return false;
-        var media = args[^1];
-        if (!Path.IsPathFullyQualified(media) || args[^2] != "-i" ||
-            !args.Contains("-protocol_whitelist") || args[Array.IndexOf(args, "-protocol_whitelist") + 1] != "file")
+        // The production probe passes media only as a read-only standard-input handle.
+        if (args[^1] != "fd:" || args[^2] != "-i" ||
+            !args.Contains("-protocol_whitelist") || args[Array.IndexOf(args, "-protocol_whitelist") + 1] != "fd")
         {
             Console.Error.WriteLine("Unsafe probe arguments.");
             exitCode = 1;
             return true;
         }
-        if (Path.GetFileName(media).StartsWith("flood"))
+        var media = ReadStandardInput();
+        if (media.StartsWith("flood"))
         {
             var chunk = new string('x', 4096);
             while (true) Console.Out.Write(chunk);
         }
-        if (Path.GetFileName(media).StartsWith("wait")) Thread.Sleep(30000);
+        if (media.StartsWith("wait")) Thread.Sleep(30000);
         Console.WriteLine("{\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"12.5\"}}");
         return true;
     }
+
+    private static string ReadStandardInput()
+    {
+        using var input = Console.OpenStandardInput();
+        var buffer = new byte[256];
+        var count = input.Read(buffer);
+        return System.Text.Encoding.UTF8.GetString(buffer, 0, Math.Max(0, count));
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern IntPtr GetStdHandle(int handle);
 
     private static bool Denied(Action operation)
     {
         try { operation(); return false; }
         catch (UnauthorizedAccessException) { return true; }
+        catch (IOException ex) when ((ex.HResult & 0xffff) == 5) { return true; }
     }
 
     private sealed class InlineProgress(Action<MetadataProgress> report) : IProgress<MetadataProgress>
@@ -115,9 +133,9 @@ internal static class MetadataRegressionTests
                 throw new Exception("Sandbox setup failure discarded validated cached metadata.");
             if (result[pendingPath].Status != MetadataProbeStatus.Failed || result[pendingPath].Error?.StartsWith("Metadata isolation failed: ") != true)
                 throw new Exception("Sandbox setup failure did not return an explicit per-file isolation failure.");
-            if (probe.LastBatchMetrics is not { CacheHits: 1, StagedBytes: 0, Setup: var setup, Staging: var staging, Parsing: var parsing } ||
-                setup <= TimeSpan.Zero || staging != TimeSpan.Zero || parsing != TimeSpan.Zero)
-                throw new Exception("Sandbox setup failure did not complete its metrics without staging or parsing.");
+            if (probe.LastBatchMetrics is not { CacheHits: 1, Parsed: 0, Setup: var setup, Parsing: var parsing } ||
+                setup <= TimeSpan.Zero || parsing != TimeSpan.Zero)
+                throw new Exception("Sandbox setup failure did not complete its metrics without parsing.");
             if (lastProgress is not { Phase: "Complete", CompletedFiles: 2, TotalFiles: 2 })
                 throw new Exception("Sandbox setup failure did not complete batch progress.");
             if (MetadataProbe.GetActiveProcessId(warmPath) is not null || MetadataProbe.GetActiveProcessId(pendingPath) is not null)
@@ -219,23 +237,30 @@ internal static class MetadataRegressionTests
             using (var source = WindowsProbeSandbox.OpenReadOnlyMedia(success)) expected = FileSnapshot.CaptureReadHandle(source.SafeFileHandle, success);
             var batchProbe = new MetadataProbe(executable);
             var firstBatch = await batchProbe.ProbeManyAsync([expected]);
-            if (batchProbe.LastBatchMetrics is not { CacheHits: 0, StagedBytes: > 0 }) throw new Exception("Cold metadata metrics were missing.");
+            if (batchProbe.LastBatchMetrics is not { CacheHits: 0, Parsed: 1 }) throw new Exception("Cold metadata metrics were missing.");
             await batchProbe.ProbeManyAsync([expected]);
-            if (batchProbe.LastBatchMetrics is not { CacheHits: 1, StagedBytes: 0, Setup: var setup } || setup != TimeSpan.Zero)
-                throw new Exception("Warm metadata created a sandbox or staged media.");
+            if (batchProbe.LastBatchMetrics is not { CacheHits: 1, Parsed: 0, Setup: var setup } || setup != TimeSpan.Zero)
+                throw new Exception("Warm metadata created a sandbox or ran the parser.");
             await VerifyAbandonedCleanup(executable, root);
-            var large = Path.Combine(root, "staging-deadline.mp4");
-            File.WriteAllBytes(large, new byte[3 * 1024 * 1024]);
-            VideoCandidate largeSnapshot;
-            using (var source = WindowsProbeSandbox.OpenReadOnlyMedia(large)) largeSnapshot = FileSnapshot.CaptureReadHandle(source.SafeFileHandle, large);
-            var deadlineProbe = new MetadataProbe(executable, stagingTimeout: TimeSpan.FromMilliseconds(25));
-            var timedStaging = await deadlineProbe.ProbeManyAsync([largeSnapshot], progress: new InlineProgress(value =>
+            // A file another program still has open for writing is probed, not skipped.
+            var recording = Path.Combine(root, "recording.mp4");
+            using (var writer = new FileStream(recording, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
             {
-                if (value.Phase == "Copying") Thread.Sleep(75);
-            }));
-            if (timedStaging[large].Status != MetadataProbeStatus.TimedOut || !timedStaging[large].Error!.Contains("staging"))
-                throw new Exception("Staging deadline did not report separately from parser timeout.");
-            if (deadlineProbe.LastBatchMetrics!.Parsing != TimeSpan.Zero) throw new Exception("Parser ran after staging deadline.");
+                writer.Write("recording fixture"u8);
+                writer.Flush();
+                VideoCandidate recordingSnapshot;
+                using (var source = WindowsProbeSandbox.OpenReadOnlyMedia(recording, allowWriters: true))
+                    recordingSnapshot = FileSnapshot.CaptureReadHandle(source.SafeFileHandle, recording);
+                var written = await new MetadataProbe(executable).ProbeManyAsync([recordingSnapshot]);
+                if (written[recording].Status != MetadataProbeStatus.Available)
+                    throw new Exception("A file open for writing by another program was not probed: " + written[recording].Error);
+                try { WindowsProbeSandbox.OpenReadOnlyMedia(recording).Dispose(); throw new Exception("A strict survivor pin accepted an active writer."); }
+                catch (IOException) { }
+            }
+            // Probing makes no media copies in the sandbox workspace.
+            if (Directory.EnumerateDirectories(Path.GetTempPath(), "dvc-sandbox-*").Any(directory =>
+                    Directory.EnumerateFiles(directory, "*.mp4", SearchOption.AllDirectories).Any()))
+                throw new Exception("Media was copied into a metadata sandbox.");
             if (firstBatch[success].Status != MetadataProbeStatus.Available)
                 throw new Exception("The original scan snapshot could not be probed.");
             var replacement = Path.Combine(root, "replacement.mp4");
@@ -248,23 +273,11 @@ internal static class MetadataRegressionTests
             var replacedBatch = await batchProbe.ProbeManyAsync([expected]);
             if (replacedBatch[success].Status != MetadataProbeStatus.Failed || replacedBatch[success].Error?.Contains("changed since the scan") != true)
                 throw new Exception("Batch probing accepted metadata for a replaced scan candidate or reused its cached result.");
-            string cleanupRoot;
-            using (var sandbox = new WindowsProbeSandbox(executable))
-            {
-                cleanupRoot = sandbox.Root;
-                var staged = await sandbox.StageMediaAsync(success, CancellationToken.None);
-                using (var locked = new FileStream(staged, FileMode.Open, FileAccess.Read, FileShare.Read))
-                {
-                    if (sandbox.RemoveMedia(staged)?.Contains("cleanup deferred") != true)
-                        throw new Exception("A locked staging file did not produce its cleanup warning.");
-                    if (!File.Exists(staged)) throw new Exception("The locked cleanup fixture was not retained for owner cleanup.");
-                }
-            }
-            if (Directory.Exists(cleanupRoot)) throw new Exception("Sandbox disposal did not remove deferred media.");
             using (var sandbox = new WindowsProbeSandbox(executable))
             {
                 var ownedRoot = sandbox.Root;
-                var staged = await sandbox.StageMediaAsync(success, CancellationToken.None);
+                var staged = Path.Combine(ownedRoot, "locked-cleanup-fixture.tmp");
+                File.WriteAllText(staged, "fixture");
                 try
                 {
                     using (var locked = new FileStream(staged, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -293,11 +306,6 @@ internal static class MetadataRegressionTests
             cache.Add("third", metadata);
             if (cache.TryGetValue("first", out _) || !cache.TryGetValue("second", out _) || !cache.TryGetValue("third", out _))
                 throw new Exception("Bounded cache eviction discarded recent entries or counted an update as a new entry.");
-            using (var sandbox = new WindowsProbeSandbox(executable))
-            {
-                try { await sandbox.StageMediaAsync(success, CancellationToken.None, expected); throw new Exception("Metadata staging accepted a replaced file snapshot."); }
-                catch (IOException ex) when (ex.Message.Contains("changed since the scan")) { }
-            }
             var privateTools = Directory.CreateDirectory(Path.Combine(root, "private-tools")).FullName;
             var copiedExecutable = Path.Combine(privateTools, Path.GetFileName(executable));
             File.Copy(executable, copiedExecutable);
@@ -305,16 +313,16 @@ internal static class MetadataRegressionTests
             using (var sandbox = new WindowsProbeSandbox(copiedExecutable))
                 if (File.Exists(Path.Combine(sandbox.Root, "tools", "unrelated-credentials.json"))) throw new Exception("Sandbox copied unrelated configuration JSON.");
             var flood = Path.Combine(root, "flood.mp4");
-            File.WriteAllText(flood, "fixture");
+            File.WriteAllText(flood, "flood fixture");
             var floodResult = await new MetadataProbe(executable, TimeSpan.FromSeconds(5)).ProbeAsync(flood);
             if (floodResult.Status != MetadataProbeStatus.Failed || floodResult.Error?.Contains("safety limit") != true)
                 throw new Exception("Excessive subprocess output was not rejected.");
             var wait = Path.Combine(root, "wait-timeout.mp4");
-            File.WriteAllText(wait, "fixture");
+            File.WriteAllText(wait, "wait fixture");
             var timeout = await new MetadataProbe(executable, TimeSpan.FromSeconds(1)).ProbeAsync(wait);
             if (timeout.Status != MetadataProbeStatus.TimedOut) throw new Exception("Timeout was not reported.");
             wait = Path.Combine(root, "wait-cancel.mp4");
-            File.WriteAllText(wait, "fixture");
+            File.WriteAllText(wait, "wait fixture");
             using var cancellation = new CancellationTokenSource();
             var task = new MetadataProbe(executable).ProbeAsync(wait, cancellation.Token);
             var timer = Stopwatch.StartNew();
@@ -346,8 +354,8 @@ internal static class MetadataRegressionTests
         try
         {
             using var sandbox = new WindowsProbeSandbox(executable);
-            var staged = await sandbox.StageMediaAsync(selected, CancellationToken.None);
-            using var isolated = sandbox.Start(["--sandbox-check", staged, sentinel, port.ToString()]);
+            using var source = WindowsProbeSandbox.OpenReadOnlyMedia(selected, allowWriters: true);
+            using var isolated = sandbox.Start(["--sandbox-check", selected, sentinel, port.ToString()], source.SafeFileHandle);
             if (!isolated.IsolationVerified) throw new Exception("AppContainer token and job were not verified before resume.");
             var output = isolated.StandardOutput.ReadToEndAsync();
             var error = isolated.StandardError.ReadToEndAsync();
@@ -355,11 +363,11 @@ internal static class MetadataRegressionTests
             var text = await output;
             if (isolated.Process.ExitCode != 0) throw new Exception("Sandbox adversarial fixture failed: " + await error + text);
             var checks = JsonSerializer.Deserialize<Dictionary<string, bool>>(text) ?? throw new Exception("Missing sandbox checks.");
-            foreach (var expected in new[] { "selectedRead", "privateReadDenied", "privateWriteDenied", "selectedWriteDenied", "environmentClean", "networkDenied", "childDenied" })
+            foreach (var expected in new[] { "selectedRead", "originalPathReadDenied", "privateReadDenied", "privateWriteDenied", "selectedWriteDenied", "environmentClean", "networkDenied", "childDenied" })
                 if (!checks.TryGetValue(expected, out var passed) || !passed) throw new Exception("Sandbox restriction failed: " + expected + "; " + text);
             if (listener.Pending()) throw new Exception("Sandbox TCP connection reached the host listener.");
             if (File.ReadAllText(sentinel) != "private fixture" || File.ReadAllText(selected) != "selected fixture") throw new Exception("Sandbox modified an original fixture.");
-            Console.WriteLine("PASS live AppContainer selected read, denied private read/write, denied staged write, clean environment, denied TCP, denied child process");
+            Console.WriteLine("PASS live AppContainer reads only its handle: original path, private read/write and handle write denied; clean environment, denied TCP, denied child process");
         }
         finally { Environment.SetEnvironmentVariable("DVC_TEST_SECRET_SENTINEL", previous); }
     }

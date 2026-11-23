@@ -1,8 +1,7 @@
 namespace DuplicateVideoCleaner;
 
-internal sealed record MetadataProgress(string Phase, string? Path, long BytesCopied, long TotalBytes,
-    int CompletedFiles, int TotalFiles, TimeSpan Elapsed);
+internal sealed record MetadataProgress(string Phase, string? Path, int CompletedFiles, int TotalFiles, TimeSpan Elapsed);
 
-// Staging and parsing totals are summed worker durations; total elapsed is wall time.
-internal sealed record MetadataBatchMetrics(int Files, int CacheHits, long StagedBytes,
-    TimeSpan Setup, TimeSpan Staging, TimeSpan Parsing, TimeSpan Elapsed);
+// Parsing is the summed worker duration; total elapsed is wall time.
+internal sealed record MetadataBatchMetrics(int Files, int CacheHits, int Parsed,
+    TimeSpan Setup, TimeSpan Parsing, TimeSpan Elapsed);

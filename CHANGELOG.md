@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Fixes for regressions in 1.1.2
+
+- Made protection of clips without a recording date in the name an opt-in scan setting, off by default, so camera, phone and recorder files are reviewed and removable again as in 1.1.1.
+- Recognised more recording dates in file names: `2026-10-15_14-30-00`, `2026-10-15 14.30.00`, NVIDIA ShadowPlay `2026.10.15 - 14.30.00`, and phone/camera `VID_20261015_143000`, `20261015_143000` and `PXL_20261015_143000123`.
+- With protection on, a protected clip no longer blocks originals it does not match. Originals in the same time window keep ordinary timestamp suggestions among themselves, and originals joined from other dates by a protected size match are never compared with each other. Without ffprobe, these originals still get timestamp review.
+- Stopped copying every video to `%TEMP%` for metadata. The sandboxed ffprobe now reads the validated original through a read-only handle, which removes the copy time, the temporary disk space requirement and the 30-minute copy deadline. Raised the metadata cache to 65,536 entries and parser concurrency to up to four.
+- Fixed Recovery restore and permanent deletion on FAT32 and exFAT drives, where file IDs change when a file moves between folders and timestamps shift by an hour after a daylight saving change. Recovery records the file's identity after the move and still rejects a replaced payload with the same size and timestamps.
+- Allowed scanning and removal when the chosen folder or a folder above it is a junction, directory symbolic link or mounted volume. Both the link and the folders it resolves to stay pinned during each operation. Links inside the scanned folder are still skipped, and cloud-sync folders with data reparse points are scanned.
+- Scanned and probed files that another program has open for writing instead of skipping them; removal still rejects active writers.
+- Reported video paths that differ only by letter case instead of failing the whole scan. Dates in file names must use ASCII digits; other digits fall back to file times instead of failing the scan.
+- Warned when every original of a time window is selected, even if an unrelated protected clip remains in the group.
+- Listed, removed and logged selected files in review order.
+- Replaced the misleading "renamed clip" wording for files that were never renamed.
+
+### Other fixes
+
+- Directory pins now actually prevent deletion, rename and link retargeting. They were opened with attribute-only access, which Windows excludes from sharing checks.
+- Recovery can restore or permanently delete several selected entries at once, with **Select all**, a size column, the total size and one confirmation. Closing the dialog during restore or deletion now closes it after the current file instead of being ignored.
+- Re-pinned FFmpeg to n8.1.3-39 because BtbN removed the pinned 2026-10-15 build, which broke fresh release builds, and added optional verified mirrors to `build/FFmpeg.json`.
+- Corrected the FFmpeg licence statement to LGPL version 3 or later (the bundled build uses `--enable-version3`) and noted that both packages include ffprobe.
+
 ## 1.1.2 - 2026-10-29
 
 ### Recording dates, protected clips, and release packages

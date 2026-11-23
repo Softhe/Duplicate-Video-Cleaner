@@ -137,7 +137,7 @@ internal sealed class ReviewedFileRow : Panel
     internal ReviewedFileRow(int groupNumber, ReviewedVideo reviewed, VideoCandidate reference, bool selected, Action<VideoCandidate, bool> selectionChanged)
     {
         var file = reviewed.Candidate;
-        reference = reviewed.ProtectedReference ?? reference;
+        reference = reviewed.ComparisonReference ?? reference;
         _accessibleName = selectedState => BuildAccessibleName(groupNumber, reviewed, reference, selectedState);
         _suggestedKeep = !reviewed.SuggestRemoval;
         AutoSize = true;
@@ -198,7 +198,7 @@ internal sealed class ReviewedFileRow : Panel
             new Size(Math.Max(1, layout.ClientSize.Width - _selection.Width - _selection.Margin.Horizontal - metadata.Margin.Horizontal), 0);
         var badge = new ConfidenceBadge(reviewed.Confidence);
 
-        if (file.IsProtected || reviewed.RequiresProtectedMatch)
+        if (file.IsProtected || reviewed.InProtectedGroup || reviewed.RequiresProtectedMatch)
         {
             metadata.Text += $"   |   {reviewed.RetentionText}";
             metadata.AccessibleName += $"; {reviewed.RetentionText}";
@@ -304,7 +304,7 @@ internal sealed class DuplicateGroupCard : Panel
         titleStack.Controls.Add(heading);
         titleStack.Controls.Add(new Label { Text = $"Keep  {group.SuggestedKeep.RelativePath}", Dock = DockStyle.Top, AutoEllipsis = true, Height = 18, ForeColor = AppTheme.SuccessText, Margin = new Padding(0, 3, 0, 0), AccessibleName = $"Suggested keep: {group.SuggestedKeep.RelativePath}" });
         if (group.Files.Any(file => file.IsProtected))
-            titleStack.Controls.Add(new Label { Text = "Renamed clips are protected. Only originals matching a protected clip's duration, resolution and size can be selected.", Dock = DockStyle.Top, AutoEllipsis = true, Height = 18, ForeColor = AppTheme.SuccessText, AccessibleName = "Renamed clips are protected; matching originals only" });
+            titleStack.Controls.Add(new Label { Text = "Clips without a recording date in their names are protected. Originals are selectable when they match a protected clip or share a time window with another original.", Dock = DockStyle.Top, AutoEllipsis = true, Height = 18, ForeColor = AppTheme.SuccessText, AccessibleName = "Undated clips are protected; originals need a protected match or another original in their time window" });
         titleStack.Controls.Add(new Label { Text = $"Remove  {preview}", Dock = DockStyle.Top, AutoEllipsis = true, Height = 18, ForeColor = AppTheme.MutedForeground, Margin = new Padding(0, 2, 0, 0), AccessibleName = $"Suggested removals: {string.Join(", ", candidates.Select(file => file.RelativePath))}" });
         titleStack.Controls.Add(new Label { Text = $"{group.Files.Count} files · {FormatSpan(span)} apart · {MainForm.FormatSize(candidates.Sum(file => file.Size))} suggested removal size", Dock = DockStyle.Top, AutoEllipsis = true, Height = 18, ForeColor = AppTheme.MutedForeground, Margin = new Padding(0, 2, 0, 0), AccessibleName = $"{group.Files.Count} files; time span {FormatSpan(span)}; suggested removal size {MainForm.FormatSize(candidates.Sum(file => file.Size))}" });
 

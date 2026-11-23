@@ -39,14 +39,14 @@ internal static class RenamedFileTests
             File.WriteAllText(Path.Combine(root, "Replay 2020-01-01 10-00-01.mp4"), "different size");
             foreach (var mode in Enum.GetValues<KeepMode>())
             {
-                var group = DuplicateScanner.Scan(root, 60, false, mode).Single();
+                var group = DuplicateScanner.Scan(root, 60, false, mode, protectUndated: true).Single();
                 Check(group.Files.Count == 4, "The size and time candidates were not merged.");
                 Check(group.SuggestedKeep.IsProtected, "The selected date rule overrode rename protection.");
                 Check(group.Files.Count(file => file.IsProtected) == 2, "Renamed clips were not identified.");
             }
             File.Delete(Path.Combine(root, "Replay 2020-01-01 10-00-00.mp4"));
             File.Delete(Path.Combine(root, "Replay 2020-01-01 10-00-01.mp4"));
-            Check(DuplicateScanner.Scan(root, 60, false, KeepMode.Oldest).Count == 0,
+            Check(DuplicateScanner.Scan(root, 60, false, KeepMode.Oldest, protectUndated: true).Count == 0,
                 "Protected-only clips should be skipped from cleanup review.");
         }
         finally { Directory.Delete(root, true); }
@@ -57,7 +57,7 @@ internal static class RenamedFileTests
         var files = Enumerable.Range(0, 7).Select(i => new VideoCandidate(
             Path.Combine(Path.GetTempPath(), $"protected-test-{i}.mp4"), $"protected-test-{i}.mp4",
             new DateTime(2026, 1, 1).AddSeconds(i), TimestampSource.FileName, i == 0 ? 101 : i == 5 ? 99 : 100,
-            IsProtected: i < 2)).ToArray();
+            IsProtected: i < 2, TimeCluster: i)).ToArray();
         var group = new DuplicateGroup(1, files, files[0]);
         MediaMetadata Metadata(int seconds, int width = 1920) => new(TimeSpan.FromSeconds(seconds), width, 1080, MetadataProbeStatus.Available);
         var metadata = new[] { Metadata(10), Metadata(20), Metadata(20), Metadata(30), Metadata(20, 1280), Metadata(20), new MediaMetadata(null, null, null, MetadataProbeStatus.Unavailable) };
@@ -77,7 +77,7 @@ internal static class RenamedFileTests
         session.SetSelected(files[0] with { IsProtected = false }, true);
         Check(session.SelectedCount == 1, "Select all or an altered candidate bypassed protection.");
         var csv = DryRunExporter.BuildCsv(session.CreateDryRun());
-        Check(csv.Contains("Protected renamed clip") && csv.Contains("No metadata match to a protected clip; kept"),
+        Check(csv.Contains("Protected clip (no recording date in its name)") && csv.Contains("No metadata match to a protected clip and no other original in its time window; kept"),
             "Export did not explain protected and unmatched clips.");
         Check(csv.Contains("ProtectedMatchPath") && csv.Contains(files[1].FullPath), "Export omitted the protected match path.");
 

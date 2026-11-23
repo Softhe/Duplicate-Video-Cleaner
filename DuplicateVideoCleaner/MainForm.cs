@@ -12,6 +12,7 @@ public sealed class MainForm : Form
     private readonly NumericUpDown _threshold = new() { Minimum = 1, Maximum = 86400, Value = 60, Width = 110, AccessibleName = "Duplicate threshold in seconds" };
     private readonly DarkComboBox _keepMode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150, AccessibleName = "File to keep" };
     private readonly CheckBox _subfolders = new() { Text = "Include subfolders", AutoSize = true, AccessibleName = "Include subfolders" };
+    private readonly CheckBox _protectUndated = new() { Text = "Protect clips without a date in the name", AutoSize = true, Margin = new Padding(0, 6, 0, 0), AccessibleName = "Protect clips without a recording date in the file name", AccessibleDescription = "When on, videos whose names contain no recording date are kept, and only originals with matching metadata or another original nearby can be removed" };
     private readonly DarkComboBox _deletionMode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170, AccessibleName = "Deletion method" };
     private readonly Button _scanButton = new() { Text = "Scan videos", AutoSize = true, AccessibleName = "Scan videos", Font = new Font(AppTheme.UiFont, FontStyle.Bold) };
     private readonly Button _cancelScanButton = new() { Text = "Cancel scan", AutoSize = true, Visible = false, AccessibleName = "Cancel scan" };
@@ -204,7 +205,9 @@ public sealed class MainForm : Form
         ruleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
         ruleRow.Controls.Add(RuleCard("TIME WINDOW", "Neighboring timestamps", _threshold, "seconds"), 0, 0);
         ruleRow.Controls.Add(RuleCard("RETENTION", "Suggested file to keep", _keepMode), 1, 0);
-        ruleRow.Controls.Add(RuleCard("SCAN SCOPE", "Folder traversal", _subfolders), 2, 0);
+        var scope = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = AppTheme.CardBack, Margin = Padding.Empty };
+        scope.Controls.AddRange([_subfolders, _protectUndated]);
+        ruleRow.Controls.Add(RuleCard("SCAN SCOPE", "Folder traversal and protection", scope), 2, 0);
         page.Controls.Add(ruleRow, 0, 2);
 
         var launch = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(20), BackColor = AppTheme.CardBack, Tag = "surface" };
@@ -369,16 +372,16 @@ public sealed class MainForm : Form
         {
             var threshold = (int)_threshold.Value;
             var keep = _keepMode.SelectedIndex == 0 ? KeepMode.Oldest : KeepMode.Newest;
-            var context = new ScanContext(Path.GetFullPath(root), threshold, keep, _subfolders.Checked);
+            var context = new ScanContext(Path.GetFullPath(root), threshold, keep, _subfolders.Checked, _protectUndated.Checked);
             _scanContext = context;
             var scanClock = Stopwatch.StartNew();
-            var scan = await Task.Run(() => DuplicateScanner.ScanDetailed(context.Root, threshold, context.IncludeSubfolders, keep, cancellation.Token));
+            var scan = await Task.Run(() => DuplicateScanner.ScanDetailed(context.Root, threshold, context.IncludeSubfolders, keep, cancellation.Token, context.ProtectUndated));
             _groups = scan.Groups;
             var enumerationTime = scanClock.Elapsed;
             cancellation.Token.ThrowIfCancellationRequested();
             SetScanStatus("Saving scan diagnostics…");
             var messages = scan.Diagnostics.Select(diagnostic => $"SCAN SKIPPED | {diagnostic.Path} | {diagnostic.Message}")
-                .Prepend($"SCAN | Folder={context.Root} | Threshold={threshold}s | Keep={keep} | Subfolders={context.IncludeSubfolders} | Groups={_groups.Count} | Files={_groups.Sum(g => g.Files.Count)}");
+                .Prepend($"SCAN | Folder={context.Root} | Threshold={threshold}s | Keep={keep} | Subfolders={context.IncludeSubfolders} | ProtectUndated={context.ProtectUndated} | Groups={_groups.Count} | Files={_groups.Sum(g => g.Files.Count)}");
             var loggingError = await Task.Run(() => (diagnosticWriter ?? AppendScanDiagnostics)(context.LogPath, messages, cancellation.Token));
             if (loggingError is not null) AddActivity("Scan logging failed", loggingError, false);
             foreach (var diagnostic in scan.Diagnostics.Take(199))
@@ -394,7 +397,7 @@ public sealed class MainForm : Form
                 return;
             }
 
-            SetScanStatus("Copying media to an isolated workspace and reading metadata. Temporary disk space is required…");
+            SetScanStatus("Reading metadata with the isolated parser…");
             if (_metadataProbe.IsAvailable)
             {
                 var progress = new LatestMetadataProgress();
@@ -402,14 +405,14 @@ public sealed class MainForm : Form
                 progressTimer.Tick += (_, _) =>
                 {
                     if (progress.Latest is { } update && !cancellation.IsCancellationRequested)
-                        SetScanStatus($"{update.Phase}: {update.CompletedFiles}/{update.TotalFiles} files · {FormatSize(update.BytesCopied)} / {FormatSize(update.TotalBytes)} copied · {update.Elapsed.TotalSeconds:0.0}s");
+                        SetScanStatus($"{update.Phase}: {update.CompletedFiles}/{update.TotalFiles} files · {update.Elapsed.TotalSeconds:0.0}s");
                 };
                 progressTimer.Start();
                 var candidates = _groups.SelectMany(group => group.Files).ToArray();
                 var metadata = await _metadataProbe.ProbeManyAsync(candidates, cancellation.Token, progress);
                 progressTimer.Stop();
                 if (_metadataProbe.LastBatchMetrics is { } metrics)
-                    AddActivity("Scan performance", $"Enumeration {enumerationTime.TotalSeconds:0.00}s; setup {metrics.Setup.TotalSeconds:0.00}s; copying {metrics.Staging.TotalSeconds:0.00}s; parsing {metrics.Parsing.TotalSeconds:0.00}s; metadata elapsed {metrics.Elapsed.TotalSeconds:0.00}s; {metrics.CacheHits}/{metrics.Files} cached; {FormatSize(metrics.StagedBytes)} staged. Copying and parsing times sum worker durations.", true);
+                    AddActivity("Scan performance", $"Enumeration {enumerationTime.TotalSeconds:0.00}s; setup {metrics.Setup.TotalSeconds:0.00}s; parsing {metrics.Parsing.TotalSeconds:0.00}s; metadata elapsed {metrics.Elapsed.TotalSeconds:0.00}s; {metrics.CacheHits}/{metrics.Files} cached; {metrics.Parsed} parsed. Parsing time sums worker durations.", true);
                 foreach (var group in _groups)
                 {
                     var referenceMetadata = metadata[group.SuggestedKeep.FullPath];
@@ -428,7 +431,7 @@ public sealed class MainForm : Form
                         _reviewed[file.FullPath] = new ReviewedVideo(file, new MediaMetadata(null, null, null, MetadataProbeStatus.Unavailable, "ffprobe was not found"), DuplicateConfidence.Low, ReferenceEquals(file, group.SuggestedKeep));
             }
 
-            foreach (var group in _groups) RenamedFilePolicy.Apply(group, _reviewed);
+            foreach (var group in _groups) RenamedFilePolicy.Apply(group, _reviewed, keep);
             var metadataWarnings = _reviewed.Values.Where(video => !string.IsNullOrWhiteSpace(video.Metadata.Error) || video.Metadata.Status is MetadataProbeStatus.Failed or MetadataProbeStatus.TimedOut).ToArray();
             foreach (var warning in metadataWarnings.Take(20))
                 AddActivity("Metadata needs attention", $"{warning.Candidate.RelativePath}: {warning.Metadata.Error ?? warning.Metadata.Status.ToString()}", false);
@@ -553,7 +556,7 @@ public sealed class MainForm : Form
         var selected = SelectedFiles();
         if (selected.Count == 0) return;
         var permanent = _deletionMode.SelectedIndex == 1;
-        var groupsWithoutSurvivors = _groups.Count(group => group.Files.All(file => _selectedPaths.Contains(file.FullPath)));
+        var groupsWithoutSurvivors = Session.GroupsWithoutSurvivors();
         using var confirmation = new DeletionConfirmationDialog(selected, permanent, FormatSize(selected.Sum(file => file.Size)), groupsWithoutSurvivors);
         if (confirmation.ShowDialog(this) != DialogResult.OK) return;
         if (!CanWriteLog(out var logError))
@@ -662,7 +665,7 @@ public sealed class MainForm : Form
         _cancelScanButton.Enabled = _cancelScanButton.Visible;
         _scanProgress.Visible = busy && _page == WorkspacePage.Scan;
         _reviewProgress.Visible = busy && _page == WorkspacePage.Review;
-        foreach (var control in new Control[] { _scanButton, _browseButton, _folderText, _threshold, _keepMode, _subfolders, _rescanButton, _exportButton, _clearButton, _deletionMode, _selectSuggestedButton, _selectAllButton, _selectNoneButton, _cardHost, _scanNav, _reviewNav, _activityNav }) control.Enabled = !busy;
+        foreach (var control in new Control[] { _scanButton, _browseButton, _folderText, _threshold, _keepMode, _subfolders, _protectUndated, _rescanButton, _exportButton, _clearButton, _deletionMode, _selectSuggestedButton, _selectAllButton, _selectNoneButton, _cardHost, _scanNav, _reviewNav, _activityNav }) control.Enabled = !busy;
         _deleteButton.Enabled = false;
         if (status is not null)
         {
@@ -806,6 +809,7 @@ public sealed class MainForm : Form
         _threshold.Value = settings.ThresholdSeconds;
         _keepMode.SelectedIndex = settings.KeepMode == KeepMode.Newest ? 1 : 0;
         _subfolders.Checked = settings.IncludeSubfolders;
+        _protectUndated.Checked = settings.ProtectUndatedClips;
         _deletionMode.SelectedIndex = settings.PermanentDeletion ? 1 : 0;
         var desired = new Rectangle(settings.WindowX, settings.WindowY, settings.WindowWidth, settings.WindowHeight);
         var visible = desired.Location != new Point(-1, -1) && HasReachableTitleBar(desired, Screen.AllScreens.Select(screen => screen.WorkingArea));
@@ -825,7 +829,8 @@ public sealed class MainForm : Form
             {
                 LastFolder = _folderText.Text.Trim(), ThresholdSeconds = (int)_threshold.Value,
                 KeepMode = _keepMode.SelectedIndex == 1 ? KeepMode.Newest : KeepMode.Oldest,
-                IncludeSubfolders = _subfolders.Checked, PermanentDeletion = _deletionMode.SelectedIndex == 1,
+                IncludeSubfolders = _subfolders.Checked, ProtectUndatedClips = _protectUndated.Checked,
+                PermanentDeletion = _deletionMode.SelectedIndex == 1,
                 WindowX = bounds.X, WindowY = bounds.Y, WindowWidth = bounds.Width, WindowHeight = bounds.Height,
                 Maximized = WindowState == FormWindowState.Maximized
             });

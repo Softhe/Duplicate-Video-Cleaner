@@ -16,7 +16,7 @@ internal static class RemovalRegressionTests
         ("recovery intent failure preserves source", RecoveryIntentFailure),
         ("recovery pins source and destination against replacement", RecoveryPinnedPaths),
         ("recovery supports long path round trip", RecoveryLongPath),
-        ("recovery rejects reparse parent directories", RecoveryReparseParent),
+        ("recovery and removal work through pinned linked parent directories", RecoveryReparseParent),
         ("recovery list isolates corrupted entries", RecoveryCorruptedEntry),
         ("recovery audit failure preserves payload", RecoveryAuditFailure),
         ("removal rejects redirected audit log", RedirectedAuditLog),
@@ -205,14 +205,24 @@ internal static class RemovalRegressionTests
 
     private static Task RecoveryReparseParent() => WithFiles((root, files) =>
     {
+        // A linked parent folder (for example a library reached through a junction or a
+        // mounted volume) works, and both the link and its target stay pinned meanwhile.
         var link = Path.Combine(root, "linked-source");
         Directory.CreateSymbolicLink(link, root);
         var throughLink = files[0] with { FullPath = Path.Combine(link, files[0].RelativePath) };
         try
         {
-            ExpectIOException(() => RecoveryStore.MoveToRecovery(throughLink));
-            ExpectIOException(() => FileSnapshot.DeleteValidated(throughLink));
-            Check(File.Exists(files[0].FullPath), "A reparse parent allowed destructive removal.");
+            RecoveryStore.MoveToRecovery(throughLink, _ =>
+            {
+                ExpectIOException(() => Directory.Delete(link));
+                ExpectIOException(() => Directory.Move(root, root + "-swapped"));
+            });
+            Check(!File.Exists(files[0].FullPath), "Recovery through a linked parent did not move the file.");
+            var entry = RecoveryStore.List(link).Single();
+            RecoveryStore.Restore(entry);
+            Check(File.ReadAllBytes(files[0].FullPath).SequenceEqual(new byte[] { 1, 2, 3 }), "Restore through a linked parent failed.");
+            FileSnapshot.DeleteValidated(throughLink);
+            Check(!File.Exists(files[0].FullPath) && File.Exists(files[1].FullPath), "Permanent removal through a linked parent failed.");
         }
         finally { Directory.Delete(link); }
         return Task.CompletedTask;

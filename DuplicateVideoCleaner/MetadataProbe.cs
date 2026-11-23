@@ -10,18 +10,16 @@ internal sealed class MetadataProbe
 {
     private readonly string? _ffprobePath;
     private readonly TimeSpan _timeout;
-    private readonly TimeSpan _stagingTimeout;
     internal MetadataBatchMetrics? LastBatchMetrics { get; private set; }
     private static readonly ConcurrentDictionary<string, int> ActiveProcesses = new(StringComparer.OrdinalIgnoreCase);
     internal static int? GetActiveProcessId(string path) => ActiveProcesses.TryGetValue(Path.GetFullPath(path), out var pid) ? pid : null;
-    private readonly BoundedMetadataCache _cache = new(2048);
+    // Entries are a few hundred bytes; this covers repeated scans of large libraries.
+    private readonly BoundedMetadataCache _cache = new(65536);
 
-    internal MetadataProbe(string? ffprobePath = null, TimeSpan? timeout = null, TimeSpan? stagingTimeout = null)
+    internal MetadataProbe(string? ffprobePath = null, TimeSpan? timeout = null)
     {
         _ffprobePath = ffprobePath ?? ResolveFfprobePath();
         _timeout = timeout ?? TimeSpan.FromSeconds(15);
-        _stagingTimeout = stagingTimeout ?? TimeSpan.FromMinutes(30);
-        if (_stagingTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(stagingTimeout));
     }
 
     internal bool IsAvailable => !string.IsNullOrWhiteSpace(_ffprobePath) && File.Exists(_ffprobePath);
@@ -36,35 +34,35 @@ internal sealed class MetadataProbe
         var hits = 0;
         await Task.Run(() =>
         {
-        foreach (var file in candidates)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
+            foreach (var file in candidates)
             {
-                using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(file.FullPath)!);
-                using var source = WindowsProbeSandbox.OpenReadOnlyMedia(file.FullPath);
-                FileSnapshot.ValidateReadHandle(source.SafeFileHandle, file);
-                if (_cache.TryGetValue(SnapshotCacheKey(file), out var cached)) { results[file.FullPath] = cached; hits++; }
-                else pending.Add(file);
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(file.FullPath)!);
+                    using var source = WindowsProbeSandbox.OpenReadOnlyMedia(file.FullPath, allowWriters: true);
+                    FileSnapshot.ValidateReadHandle(source.SafeFileHandle, file);
+                    if (_cache.TryGetValue(SnapshotCacheKey(file), out var cached)) { results[file.FullPath] = cached; hits++; }
+                    else pending.Add(file);
+                }
+                catch (Exception ex) { results[file.FullPath] = new(null, null, null, MetadataProbeStatus.Failed, ex.Message); }
             }
-            catch (Exception ex) { results[file.FullPath] = new(null, null, null, MetadataProbeStatus.Failed, ex.Message); }
-        }
         }, cancellationToken);
-        long stagingTicks = 0, parsingTicks = 0, stagedBytes = 0, copiedBytes = 0;
+        long parsingTicks = 0;
+        var parsed = 0;
         var completed = results.Count;
-        var totalBytes = pending.Sum(file => file.Size);
-        progress?.Report(new("Preparing", null, 0, totalBytes, completed, candidates.Length, clock.Elapsed));
+        progress?.Report(new("Preparing", null, completed, candidates.Length, clock.Elapsed));
         if (pending.Count == 0)
         {
-            LastBatchMetrics = new(candidates.Length, hits, 0, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, clock.Elapsed);
-            progress?.Report(new("Complete", null, 0, 0, completed, candidates.Length, clock.Elapsed));
+            LastBatchMetrics = new(candidates.Length, hits, 0, TimeSpan.Zero, TimeSpan.Zero, clock.Elapsed);
+            progress?.Report(new("Complete", null, completed, candidates.Length, clock.Elapsed));
             return results;
         }
         if (!IsAvailable)
         {
             foreach (var file in pending) results[file.FullPath] = new(null, null, null, MetadataProbeStatus.Unavailable, "ffprobe was not found");
-            LastBatchMetrics = new(candidates.Length, hits, 0, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, clock.Elapsed);
-            progress?.Report(new("Complete", null, 0, totalBytes, results.Count, candidates.Length, clock.Elapsed));
+            LastBatchMetrics = new(candidates.Length, hits, 0, TimeSpan.Zero, TimeSpan.Zero, clock.Elapsed);
+            progress?.Report(new("Complete", null, results.Count, candidates.Length, clock.Elapsed));
             return results;
         }
         var setupClock = Stopwatch.StartNew();
@@ -76,8 +74,8 @@ internal sealed class MetadataProbe
             cancellationToken.ThrowIfCancellationRequested();
             foreach (var file in pending)
                 results[file.FullPath] = new(null, null, null, MetadataProbeStatus.Failed, "Metadata isolation failed: " + ex.Message);
-            LastBatchMetrics = new(candidates.Length, hits, 0, setupClock.Elapsed, TimeSpan.Zero, TimeSpan.Zero, clock.Elapsed);
-            progress?.Report(new("Complete", null, 0, totalBytes, results.Count, candidates.Length, clock.Elapsed));
+            LastBatchMetrics = new(candidates.Length, hits, 0, setupClock.Elapsed, TimeSpan.Zero, clock.Elapsed);
+            progress?.Report(new("Complete", null, results.Count, candidates.Length, clock.Elapsed));
             return results;
         }
         var setup = setupClock.Elapsed;
@@ -85,22 +83,25 @@ internal sealed class MetadataProbe
         {
             await Parallel.ForEachAsync(pending, new ParallelOptions
             {
-                MaxDegreeOfParallelism = 2,
+                // No media is copied, so parsing is CPU and seek bound.
+                MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 2, 4),
                 CancellationToken = cancellationToken
             }, async (file, token) =>
             {
-                results[file.FullPath] = await ProbeCoreAsync(file.FullPath, sandbox, token, file,
-                    count => { var current = Interlocked.Add(ref copiedBytes, count); progress?.Report(new("Copying", file.FullPath, current, totalBytes, Volatile.Read(ref completed), candidates.Length, clock.Elapsed)); },
-                    (stage, parser, bytes) => { Interlocked.Add(ref stagingTicks, stage.Ticks); Interlocked.Add(ref parsingTicks, parser.Ticks); Interlocked.Add(ref stagedBytes, bytes); });
+                results[file.FullPath] = await ProbeCoreAsync(file.FullPath, sandbox, token, file, parser =>
+                {
+                    Interlocked.Add(ref parsingTicks, parser.Ticks);
+                    Interlocked.Increment(ref parsed);
+                });
                 var done = Interlocked.Increment(ref completed);
-                progress?.Report(new("Reading metadata", file.FullPath, Volatile.Read(ref copiedBytes), totalBytes, done, candidates.Length, clock.Elapsed));
+                progress?.Report(new("Reading metadata", file.FullPath, done, candidates.Length, clock.Elapsed));
             });
         }
         finally { await Task.Run(sandbox.Dispose); }
         if (sandbox.CleanupWarnings.Count > 0)
             foreach (var path in results.Keys) results[path] = WithCleanupWarnings(results[path], sandbox.CleanupWarnings);
-        LastBatchMetrics = new(candidates.Length, hits, stagedBytes, setup, TimeSpan.FromTicks(stagingTicks), TimeSpan.FromTicks(parsingTicks), clock.Elapsed);
-        progress?.Report(new("Complete", null, copiedBytes, totalBytes, completed, candidates.Length, clock.Elapsed));
+        LastBatchMetrics = new(candidates.Length, hits, parsed, setup, TimeSpan.FromTicks(parsingTicks), clock.Elapsed);
+        progress?.Report(new("Complete", null, completed, candidates.Length, clock.Elapsed));
         return results;
     }
 
@@ -126,43 +127,39 @@ internal sealed class MetadataProbe
             Error = string.Join("; ", new[] { result.Error }.Where(error => !string.IsNullOrWhiteSpace(error)).Concat(warnings))
         };
 
-    private async Task<MediaMetadata> ProbeCoreAsync(string path, WindowsProbeSandbox sandbox, CancellationToken cancellationToken, VideoCandidate? scanSnapshot = null, Action<int>? copied = null, Action<TimeSpan, TimeSpan, long>? measured = null)
+    private async Task<MediaMetadata> ProbeCoreAsync(string path, WindowsProbeSandbox sandbox, CancellationToken cancellationToken, VideoCandidate? scanSnapshot = null, Action<TimeSpan>? measured = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsAvailable) return new MediaMetadata(null, null, null, MetadataProbeStatus.Unavailable, "ffprobe was not found");
         string key;
-        VideoCandidate expected;
+        FileStream? source = null;
         try
         {
             path = Path.GetFullPath(path);
             using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(path)!);
-            using var source = WindowsProbeSandbox.OpenReadOnlyMedia(path);
-            expected = scanSnapshot ?? FileSnapshot.CaptureReadHandle(source.SafeFileHandle, path);
+            source = WindowsProbeSandbox.OpenReadOnlyMedia(path, allowWriters: true);
+            // The parser reads this exact validated object, so a later path swap cannot
+            // redirect it to other content.
+            var expected = scanSnapshot ?? FileSnapshot.CaptureReadHandle(source.SafeFileHandle, path);
             FileSnapshot.ValidateReadHandle(source.SafeFileHandle, expected);
             key = SnapshotCacheKey(expected);
         }
-        catch (Exception ex) { return new MediaMetadata(null, null, null, MetadataProbeStatus.Failed, ex.Message); }
+        catch (Exception ex)
+        {
+            source?.Dispose();
+            return new MediaMetadata(null, null, null, MetadataProbeStatus.Failed, ex.Message);
+        }
+        using var input = source;
         if (_cache.TryGetValue(key, out var cached)) return cached;
 
         SandboxedProcess? isolated = null;
         Process? process = null;
-        string? staged = null;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var stagingClock = Stopwatch.StartNew();
-        var parsingClock = new Stopwatch();
-        var stagedSuccessfully = false;
+        var parsingClock = Stopwatch.StartNew();
         try
         {
-            using (var stagingCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-            {
-                stagingCancellation.CancelAfter(_stagingTimeout);
-                staged = await sandbox.StageMediaAsync(path, stagingCancellation.Token, expected, copied);
-            }
-            stagedSuccessfully = true;
-            stagingClock.Stop();
-            parsingClock.Start();
-            cancellationToken.ThrowIfCancellationRequested();
-            isolated = sandbox.Start(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration", "-of", "json", "-protocol_whitelist", "file", "-i", staged]);
+            isolated = sandbox.Start(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration", "-of", "json", "-protocol_whitelist", "fd", "-i", "fd:"],
+                input.SafeFileHandle);
             process = isolated.Process;
             ActiveProcesses[path] = process.Id;
             timeout.CancelAfter(_timeout);
@@ -175,17 +172,14 @@ internal sealed class MetadataProbe
             parsingClock.Stop();
             isolated.Dispose();
             isolated = null;
-            var cleanupWarning = sandbox.RemoveMedia(staged);
-            staged = null;
             _cache.Add(key, result);
-            if (cleanupWarning is not null) result = result with { Error = string.IsNullOrWhiteSpace(result.Error) ? cleanupWarning : result.Error + "; " + cleanupWarning };
             return result;
         }
         catch (OperationCanceledException)
         {
             if (process is not null) await StopProcessAsync(process);
             cancellationToken.ThrowIfCancellationRequested();
-            return new MediaMetadata(null, null, null, MetadataProbeStatus.TimedOut, stagedSuccessfully ? "ffprobe timed out" : "Metadata staging exceeded its separate time limit");
+            return new MediaMetadata(null, null, null, MetadataProbeStatus.TimedOut, "ffprobe timed out");
         }
         catch (Exception ex)
         {
@@ -195,12 +189,10 @@ internal sealed class MetadataProbe
         }
         finally
         {
-            stagingClock.Stop();
             parsingClock.Stop();
-            measured?.Invoke(stagingClock.Elapsed, parsingClock.Elapsed, stagedSuccessfully ? expected.Size : 0);
+            measured?.Invoke(parsingClock.Elapsed);
             ActiveProcesses.TryRemove(path, out _);
             isolated?.Dispose();
-            if (staged is not null) sandbox.RemoveMedia(staged);
         }
     }
 

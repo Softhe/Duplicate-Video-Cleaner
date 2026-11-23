@@ -9,8 +9,8 @@ using Microsoft.Win32.SafeHandles;
 
 namespace DuplicateVideoCleaner;
 
-// The broker copies only the selected media and trusted probe files. The parser
-// receives a zero-capability AppContainer token and a non-breakaway one-process job.
+// The broker copies only trusted probe files and passes each media file as a read-only
+// handle. The parser receives a zero-capability AppContainer token and a non-breakaway one-process job.
 internal sealed class WindowsProbeSandbox : IDisposable
 {
     private readonly string _profileName = "DVC.Probe." + Guid.NewGuid().ToString("N");
@@ -19,9 +19,6 @@ internal sealed class WindowsProbeSandbox : IDisposable
     private IntPtr _sid;
     private bool _profileCreated;
     private bool _disposed;
-    // Serialize disk copies across probes so each free-space check includes prior
-    // completed writes. Parsing remains concurrent after the copy gate is released.
-    private static readonly SemaphoreSlim StagingGate = new(1, 1);
     internal string ExecutablePath { get; private set; } = "";
     internal string Root => _root;
     internal List<string> CleanupWarnings { get; } = [];
@@ -65,77 +62,31 @@ internal sealed class WindowsProbeSandbox : IDisposable
         catch { Dispose(); throw; }
     }
 
-    internal async Task<string> StageMediaAsync(string path, CancellationToken cancellationToken, VideoCandidate? expected = null, Action<int>? copied = null)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        var folder = Directory.CreateDirectory(Path.Combine(_root, Guid.NewGuid().ToString("N"))).FullName;
-        var staged = Path.Combine(folder, Path.GetFileName(path));
-        var volume = Path.GetPathRoot(_root)!;
-        await StagingGate.WaitAsync(cancellationToken);
-        try
-        {
-            using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(Path.GetFullPath(path))!);
-            await using var source = OpenReadOnlyMedia(path);
-            expected ??= FileSnapshot.CaptureReadHandle(source.SafeFileHandle, Path.GetFullPath(path));
-            FileSnapshot.ValidateReadHandle(source.SafeFileHandle, expected);
-            if (new DriveInfo(volume).AvailableFreeSpace - 64L * 1024 * 1024 < source.Length)
-                throw new IOException("Insufficient temporary disk space for an isolated metadata copy. Free space and scan again.");
-            await using var destination = new FileStream(staged, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024 * 1024, FileOptions.Asynchronous);
-            var buffer = new byte[1024 * 1024];
-            while (true)
-            {
-                var count = await source.ReadAsync(buffer.AsMemory(), cancellationToken);
-                if (count == 0) break;
-                await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
-                copied?.Invoke(count);
-            }
-            return staged;
-        }
-        catch { TryRemoveMediaDirectory(folder); throw; }
-        finally { StagingGate.Release(); }
-    }
-
-    internal static FileStream OpenReadOnlyMedia(string path)
+    // allowWriters: let other programs keep the file open for writing (scans and
+    // metadata). Survivor pins and removal keep the default, which rejects writers.
+    internal static FileStream OpenReadOnlyMedia(string path, bool allowWriters = false)
     {
         var full = Path.GetFullPath(path);
         var extended = full.StartsWith(@"\\?\", StringComparison.Ordinal) ? full : full.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC\" + full[2..] : @"\\?\" + full;
-        var handle = CreateFile(extended, 0x80000000, 1, IntPtr.Zero, 3, 0x08200000, IntPtr.Zero);
+        var share = allowWriters ? 7u : 1u;
+        var handle = CreateFile(extended, 0x80000000, share, IntPtr.Zero, 3, 0x08200000, IntPtr.Zero);
         try
         {
             if (handle.IsInvalid) throw new IOException("The selected media could not be opened read-only.", new Win32Exception(Marshal.GetLastWin32Error()));
-            return new FileStream(handle, FileAccess.Read, 1024 * 1024);
+            return new FileStream(handle, FileAccess.Read, 1);
         }
         catch { handle.Dispose(); throw; }
     }
 
-    internal SandboxedProcess Start(IReadOnlyList<string> arguments)
+    // The parser receives the validated read-only media handle as standard input and
+    // reads it with ffprobe's seekable fd: protocol. The AppContainer has no file-system
+    // access to the original, and no copy of the media is made.
+    internal SandboxedProcess Start(IReadOnlyList<string> arguments, SafeFileHandle? standardInput = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return SandboxedProcess.Start(ExecutablePath, _root, _sid, arguments);
+        return SandboxedProcess.Start(ExecutablePath, _root, _sid, arguments, standardInput);
     }
 
-    internal string? RemoveMedia(string staged)
-    {
-        var directory = Path.GetDirectoryName(Path.GetFullPath(staged))!;
-        if (!Path.GetDirectoryName(directory)!.Equals(_root, StringComparison.OrdinalIgnoreCase)) throw new IOException("Unexpected metadata staging path.");
-        return TryRemoveMediaDirectory(directory);
-    }
-
-    private static string? TryRemoveMediaDirectory(string directory)
-    {
-        // The sandbox owner retries its entire private root at disposal. A temporary
-        // sharing violation here must not discard metadata already obtained.
-        for (var attempt = 0; attempt < 3; attempt++)
-        {
-            try { if (Directory.Exists(directory)) Directory.Delete(directory, true); return null; }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                if (attempt == 2) return "Metadata staging cleanup deferred to sandbox disposal: " + ex.Message;
-                Thread.Sleep(50);
-            }
-        }
-        return null;
-    }
 
     public void Dispose()
     {
@@ -203,7 +154,7 @@ internal sealed class SandboxedProcess : IDisposable
         IsolationVerified = true;
     }
 
-    internal static SandboxedProcess Start(string executable, string directory, IntPtr sid, IReadOnlyList<string> arguments)
+    internal static SandboxedProcess Start(string executable, string directory, IntPtr sid, IReadOnlyList<string> arguments, SafeFileHandle? standardInput = null)
     {
         var output = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
         var error = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
@@ -211,9 +162,17 @@ internal sealed class SandboxedProcess : IDisposable
         SafeFileHandle? job = null;
         Process? process = null;
         IntPtr attributes = IntPtr.Zero, capabilitiesPointer = IntPtr.Zero, handlesPointer = IntPtr.Zero, environmentPointer = IntPtr.Zero;
+        IntPtr inheritedInput = IntPtr.Zero;
         var native = new ProcessInformation();
         try
         {
+            if (standardInput is not null)
+            {
+                // An inheritable duplicate with the same (read-only) access; the original
+                // handle stays non-inheritable for unrelated child processes.
+                var self = GetCurrentProcess();
+                if (!DuplicateHandle(self, standardInput, self, out inheritedInput, 0, true, 2)) throw Error("Prepare metadata input");
+            }
             job = CreateJobObject(IntPtr.Zero, null);
             if (job.IsInvalid) throw Error("Create metadata job");
             var limits = new ExtendedLimits
@@ -230,7 +189,7 @@ internal sealed class SandboxedProcess : IDisposable
             capabilitiesPointer = Marshal.AllocHGlobal(Marshal.SizeOf<SecurityCapabilities>());
             Marshal.StructureToPtr(capabilities, capabilitiesPointer, false);
             if (!UpdateProcThreadAttribute(attributes, 0, (IntPtr)0x20009, capabilitiesPointer, (nuint)Marshal.SizeOf<SecurityCapabilities>(), IntPtr.Zero, IntPtr.Zero)) throw Error("Apply AppContainer token");
-            var inherited = new[] { input.ClientSafePipeHandle.DangerousGetHandle(), output.ClientSafePipeHandle.DangerousGetHandle(), error.ClientSafePipeHandle.DangerousGetHandle() };
+            var inherited = new[] { inheritedInput != IntPtr.Zero ? inheritedInput : input.ClientSafePipeHandle.DangerousGetHandle(), output.ClientSafePipeHandle.DangerousGetHandle(), error.ClientSafePipeHandle.DangerousGetHandle() };
             handlesPointer = Marshal.AllocHGlobal(IntPtr.Size * inherited.Length);
             Marshal.Copy(inherited, 0, handlesPointer, inherited.Length);
             if (!UpdateProcThreadAttribute(attributes, 0, (IntPtr)0x20002, handlesPointer, (nuint)(IntPtr.Size * inherited.Length), IntPtr.Zero, IntPtr.Zero)) throw Error("Restrict inherited metadata handles");
@@ -279,6 +238,7 @@ internal sealed class SandboxedProcess : IDisposable
         }
         finally
         {
+            if (inheritedInput != IntPtr.Zero) CloseHandle(inheritedInput);
             if (native.Thread != IntPtr.Zero) CloseHandle(native.Thread);
             if (native.Process != IntPtr.Zero) CloseHandle(native.Process);
             if (attributes != IntPtr.Zero) { DeleteProcThreadAttributeList(attributes); Marshal.FreeHGlobal(attributes); }
@@ -358,6 +318,8 @@ internal sealed class SandboxedProcess : IDisposable
     [DllImport("kernel32.dll", SetLastError = true)] private static extern uint ResumeThread(IntPtr thread);
     [DllImport("kernel32.dll")] private static extern bool TerminateProcess(IntPtr process, uint code);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool DuplicateHandle(IntPtr sourceProcess, SafeFileHandle source, IntPtr targetProcess, out IntPtr target, uint access, bool inherit, uint options);
     [DllImport("kernel32.dll")] private static extern uint SetErrorMode(uint mode);
     [DllImport("advapi32.dll", SetLastError = true)] private static extern bool OpenProcessToken(IntPtr process, uint access, out SafeFileHandle token);
     [DllImport("advapi32.dll", SetLastError = true)] private static extern bool GetTokenInformation(SafeFileHandle token, int type, IntPtr buffer, uint length, out uint returned);

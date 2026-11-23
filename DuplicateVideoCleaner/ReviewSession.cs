@@ -75,7 +75,7 @@ internal sealed class ReviewSession
                 });
             }
             var rebuiltGroup = new DuplicateGroup(rebuilt.Count + 1, remaining, keep);
-            RenamedFilePolicy.Apply(rebuiltGroup, reviewed);
+            RenamedFilePolicy.Apply(rebuiltGroup, reviewed, context.KeepMode);
             rebuilt.Add(rebuiltGroup);
         }
         return new ReviewSession(rebuilt, _selection, context, reviewed);
@@ -88,5 +88,16 @@ internal sealed class ReviewSession
             new DryRunRow(group.Number, Reviewed[file.FullPath], _selection.Contains(file.FullPath)))).ToArray());
     }
 
-    internal List<VideoCandidate> SelectedFiles() => _selection.Select(path => _files[path]).ToList();
+    // Groups where removal would leave no copy: every file is selected, or, in a group with
+    // protected clips, every original of one time window is selected. An unrelated
+    // protected clip that remains must not hide the warning.
+    internal int GroupsWithoutSurvivors() => Groups.Count(group =>
+        group.Files.All(file => _selection.Contains(file.FullPath)) ||
+        group.Files.Where(file => Reviewed.TryGetValue(file.FullPath, out var video) && video.OriginalKeeper is not null)
+            .GroupBy(file => Reviewed[file.FullPath].OriginalKeeper!.FullPath, StringComparer.OrdinalIgnoreCase)
+            .Any(window => window.All(file => _selection.Contains(file.FullPath))));
+
+    // Group order, so confirmation, removal and audit log follow what Review shows.
+    internal List<VideoCandidate> SelectedFiles() =>
+        Groups.SelectMany(group => group.Files).Where(file => _selection.Contains(file.FullPath)).ToList();
 }
