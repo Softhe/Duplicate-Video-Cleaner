@@ -54,9 +54,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $previous = Join-Path $env:RUNNER_TEMP 'DuplicateVideoCleaner-1.1.1-win-x64-setup.exe'
-          Invoke-WebRequest -Uri 'https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.1/DuplicateVideoCleaner-1.1.1-win-x64-setup.exe' -OutFile $previous
-          if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash -ne 'A7766E7FAE119E246ABB69F36A891581F714946832D386FB3064CF24CF243030') { throw 'Previous installer hash mismatch.' }
+          $previous = Join-Path $env:RUNNER_TEMP 'DuplicateVideoCleaner-1.1.2-win-x64-setup.exe'
+          Invoke-WebRequest -Uri 'https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.2/DuplicateVideoCleaner-1.1.2-win-x64-setup.exe' -OutFile $previous
+          if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash -ne 'B42B258AE3D3120891DB7906D4374206628A69398A266DA14BDA8CAD1F92B07F') { throw 'Previous installer hash mismatch.' }
           $setups = @(Get-ChildItem release/*-setup.exe)
           if ($setups.Count -ne 1) { throw 'Expected one candidate setup.' }
           ./build/Test-InstalledSetup.ps1 -SetupPath $setups[0].FullName -PreviousSetupPath $previous -RequireVirtualMachine -RunUiTests -EvidencePath release/installer-acceptance.json

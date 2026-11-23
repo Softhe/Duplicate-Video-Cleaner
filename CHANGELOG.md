@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.3 - 2026-11-23
 
 ### Fixes for regressions in 1.1.2
 
