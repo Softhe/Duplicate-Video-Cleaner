@@ -1,8 +1,11 @@
+<!-- Source drawing for the app icon (the tile version). build/CreateIcon.ps1 renders the same geometry
+     into DuplicateVideoCleaner.ico, GlyphOnDark.ico and GlyphOnLight.ico. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <rect width="256" height="256" rx="52" fill="#408be6"/>
-  <rect x="42" y="55" width="140" height="112" rx="15" fill="#18222e" stroke="#eef4fb" stroke-width="10"/>
-  <path d="M70 55v112M154 55v112M42 84h28M42 138h28M154 84h28M154 138h28" stroke="#eef4fb" stroke-width="10"/>
-  <path d="M98 91l38 20-38 22z" fill="#eef4fb"/>
-  <circle cx="165" cy="164" r="39" fill="#18222e" stroke="#eef4fb" stroke-width="12"/>
-  <path d="M194 193l30 30" stroke="#eef4fb" stroke-width="17" stroke-linecap="round"/>
+  <rect x="10" y="10" width="236" height="236" rx="56" fill="#1a1a1a" stroke="#ffffff" stroke-opacity=".18" stroke-width="2.7"/>
+  <g transform="translate(46 46) scale(0.640625)" fill="#ffffff" stroke="#ffffff" stroke-linejoin="round">
+    <polygon points="118,70 118,150 187.6,110" stroke-width="16" opacity=".4"/>
+    <polygon points="90,98 90,178 159.6,138" stroke="#1a1a1a" stroke-width="30"/>
+    <polygon points="90,98 90,178 159.6,138" stroke-width="16"/>
+    <path d="M28 86V58a30 30 0 0 1 30-30h28M170 28h28a30 30 0 0 1 30 30v28M228 170v28a30 30 0 0 1-30 30h-28M86 228H58a30 30 0 0 1-30-30v-28" fill="none" stroke-width="18" stroke-linecap="round"/>
+  </g>
 </svg>

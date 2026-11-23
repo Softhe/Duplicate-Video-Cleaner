@@ -19,6 +19,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="assets\DuplicateVideoCleaner.ico" />
+    <Resource Include="assets\GlyphOnDark.ico" />
+    <Resource Include="assets\GlyphOnLight.ico" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../DuplicateVideoCleaner.Core/DuplicateVideoCleaner.Core.csproj" />

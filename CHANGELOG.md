@@ -10,6 +10,7 @@
 - Review: a group list beside the selected group's files. Each file shows its role (KEEP, REMOVE or PROTECTED), its timestamp and source, and its resolution, duration and size, with ✓ for a match and ≠ for a difference from the file it is compared with. Lists are virtualised instead of paged.
 - Confirmation is an in-window dialog. Cancel is the focused default; Enter and Esc never confirm. It lists every selected file, names the Recovery folder and warns when every copy of a recording is selected.
 - Recovery moved from a separate window into the Activity & Recovery page, next to the session activity. Permanent deletion asks first, and restores and deletions appear in the activity log.
+- New monochrome app icon: viewfinder corners around a play mark with a faded duplicate. The title-bar icon follows the app theme and the taskbar icon follows the Windows light or dark mode, both live; the EXE, Start menu and installer use a white version on a dark tile that reads on any background.
 
 ### Video thumbnails
 

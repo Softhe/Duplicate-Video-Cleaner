@@ -31,8 +31,13 @@ public partial class MainWindow : Window
             RestorePlacement(viewModel.Settings);
             ThemeManager.ApplyTitleBar(this);
         };
+        var icons = new WindowIcons(this);
         Closing += OnClosing;
-        Closed += (_, _) => ThemeManager.Changed -= OnThemeChanged;
+        Closed += (_, _) =>
+        {
+            ThemeManager.Changed -= OnThemeChanged;
+            icons.Dispose();
+        };
     }
 
     internal MainViewModel ViewModel => _viewModel;
