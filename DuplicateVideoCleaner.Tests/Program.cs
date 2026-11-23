@@ -141,7 +141,25 @@ static void SettingsValidationAndPersistence() => WithFolder(root =>
     Equal(920, loaded.WindowWidth);
     Equal(600, loaded.WindowHeight);
     Equal(KeepMode.Newest, loaded.KeepMode);
+    Equal(ThemePreference.Dark, loaded.Theme);
     Assert(!File.Exists(path + ".tmp"), "Atomic settings temporary file remained.");
+
+    // Settings from 1.1.x have no theme or recent folders: dark is the default.
+    File.WriteAllText(path, """{"SchemaVersion":1,"LastFolder":"D:\\Old","ThresholdSeconds":30}""");
+    loaded = service.Load();
+    Equal(ThemePreference.Dark, loaded.Theme);
+    Equal(0, loaded.RecentFolders.Length);
+    Equal(30, loaded.ThresholdSeconds);
+
+    File.WriteAllText(path, """{"Theme":7,"RecentFolders":["A"," a ",null,"","B","C","D","E","F"]}""");
+    loaded = service.Load();
+    Equal(ThemePreference.Dark, loaded.Theme);
+    Equal("A,B,C,D,E", string.Join(",", loaded.RecentFolders));
+
+    var recent = new AppSettings { RecentFolders = ["A", "B", "C", "D", "E"] }.WithRecentFolder(" c ");
+    Equal("c,A,B,D,E", string.Join(",", recent.RecentFolders));
+    service.Save(recent with { Theme = ThemePreference.Light });
+    Equal(ThemePreference.Light, service.Load().Theme);
 });
 
 static void MetadataParsing()

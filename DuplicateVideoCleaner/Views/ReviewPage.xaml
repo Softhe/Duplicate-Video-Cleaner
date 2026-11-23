@@ -1,0 +1,312 @@
+<UserControl x:Class="DuplicateVideoCleaner.Views.ReviewPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:DuplicateVideoCleaner.Views"
+             AutomationProperties.Name="Review workspace">
+  <UserControl.Resources>
+    <views:VisibleWhenConverter x:Key="Visible" />
+    <views:VisibleWhenConverter x:Key="Hidden" Invert="True" />
+    <views:NotConverter x:Key="Not" />
+  </UserControl.Resources>
+  <UserControl.InputBindings>
+    <KeyBinding Modifiers="Alt" Key="S" Command="{Binding SelectSuggestedCommand}" />
+    <KeyBinding Modifiers="Alt" Key="A" Command="{Binding SelectAllCommand}" />
+    <KeyBinding Modifiers="Alt" Key="N" Command="{Binding SelectNoneCommand}" />
+  </UserControl.InputBindings>
+
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <!-- Header: title, scan settings line, bulk selection, Rescan and overflow -->
+    <Grid Margin="24,20,24,14">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <StackPanel>
+        <TextBlock Text="Review" Style="{StaticResource TitleText}" />
+        <TextBlock Text="{Binding Summary}" Style="{StaticResource CaptionText}" FontSize="13" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"
+                   ToolTip="{Binding Summary}" AutomationProperties.Name="{Binding Summary}" />
+        <TextBlock Text="{Binding Status}" Style="{StaticResource TertiaryCaptionText}" Margin="0,2,0,0" TextWrapping="Wrap" MaxHeight="34"
+                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}" Visibility="{Binding HasStatus, Converter={StaticResource Visible}}"
+                   AutomationProperties.Name="{Binding Status, StringFormat=Review status: {0}}" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="16,6,0,0">
+        <Border Style="{StaticResource SegmentContainer}" AutomationProperties.Name="Select">
+          <StackPanel Orientation="Horizontal">
+            <Button Style="{StaticResource SegmentButton}" Content="Suggested" Command="{Binding SelectSuggestedCommand}"
+                    AutomationProperties.Name="Select all suggested removals" ToolTip="Select every suggested removal (Alt+S)" />
+            <Button Style="{StaticResource SegmentButton}" Content="All" Command="{Binding SelectAllCommand}"
+                    AutomationProperties.Name="Select all files" ToolTip="Select every file that can be removed (Alt+A)" />
+            <Button Style="{StaticResource SegmentButton}" Content="None" Command="{Binding SelectNoneCommand}"
+                    AutomationProperties.Name="Clear all selections" ToolTip="Clear every selection (Alt+N)" />
+          </StackPanel>
+        </Border>
+        <Button Margin="8,0,0,0" Command="{Binding RescanCommand}" AutomationProperties.Name="Rescan videos" ToolTip="Scan the same folder again">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Style="{StaticResource IconText}" Text="&#xE72C;" FontSize="14" Margin="0,0,8,0" />
+            <TextBlock Text="Rescan" />
+          </StackPanel>
+        </Button>
+        <Button x:Name="MoreButton" Margin="8,0,0,0" Width="34" Padding="0" Click="OnMoreClick" AutomationProperties.Name="More review actions" ToolTip="More">
+          <TextBlock Style="{StaticResource IconText}" Text="&#xE712;" FontSize="14" />
+          <Button.ContextMenu>
+            <ContextMenu Placement="Bottom">
+              <MenuItem Header="Clear results" Command="{Binding ClearResultsCommand}" AutomationProperties.Name="Clear results">
+                <MenuItem.Icon><TextBlock Style="{StaticResource IconText}" FontSize="14" Text="&#xE894;" /></MenuItem.Icon>
+              </MenuItem>
+              <MenuItem Header="Open cleanup log" Command="{Binding OpenLogCommand}" AutomationProperties.Name="Open cleanup log">
+                <MenuItem.Icon><TextBlock Style="{StaticResource IconText}" FontSize="14" Text="&#xE8A5;" /></MenuItem.Icon>
+              </MenuItem>
+            </ContextMenu>
+          </Button.ContextMenu>
+        </Button>
+      </StackPanel>
+    </Grid>
+
+    <!-- Master–detail: groups on the left, the selected group's files on the right -->
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="300" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <Border Grid.ColumnSpan="3" Style="{StaticResource Divider}" VerticalAlignment="Top" />
+
+      <ListBox x:Name="GroupList" ItemsSource="{Binding Groups}" SelectedItem="{Binding SelectedGroup}" Padding="8,8,6,8"
+               AutomationProperties.Name="Duplicate groups" IsEnabled="{Binding IsWorking, Converter={StaticResource Not}}">
+        <ListBox.ItemContainerStyle>
+          <Style TargetType="ListBoxItem" BasedOn="{StaticResource SelectableItem}">
+            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+            <Setter Property="Padding" Value="14,9,10,9" />
+          </Style>
+        </ListBox.ItemContainerStyle>
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                  <TextBlock Text="{Binding SelectionText}" VerticalAlignment="Center" Margin="0,0,8,0">
+                    <TextBlock.Style>
+                      <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding AllSelected}" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource CautionBrush}" />
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </TextBlock.Style>
+                  </TextBlock>
+                  <Border Style="{StaticResource ConfidenceChip}" Tag="{Binding ConfidenceKey}">
+                    <TextBlock Text="{Binding ConfidenceText}" />
+                  </Border>
+                </StackPanel>
+              </StackPanel>
+              <TextBlock Grid.Column="1" Text="{Binding SizeText}" Style="{StaticResource BodyStrongText}" FontSize="13" Margin="8,0,0,0" />
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+
+      <Border Grid.Column="1" Width="1" Background="{DynamicResource DividerBrush}" />
+
+      <!-- Selected group -->
+      <DockPanel Grid.Column="2" DataContext="{Binding SelectedGroup}" Visibility="{Binding Converter={StaticResource Visible}}">
+        <Grid DockPanel.Dock="Top" Margin="28,18,24,14">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <StackPanel>
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="{Binding Number, StringFormat=Group {0}}" Style="{StaticResource SubtitleText}"
+                         AutomationProperties.Name="{Binding Number, StringFormat=Duplicate group {0}}" />
+              <Border Style="{StaticResource ConfidenceChip}" Tag="{Binding ConfidenceKey}" Margin="12,2,0,0">
+                <TextBlock Text="{Binding ConfidenceTitle}" AutomationProperties.Name="{Binding ConfidenceTitle, StringFormat=Confidence: {0}}" />
+              </Border>
+            </StackPanel>
+            <TextBlock Style="{StaticResource CaptionText}" FontSize="13" Margin="0,6,0,0" TextWrapping="Wrap">
+              <Run Text="{Binding RangeText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding ConfidenceExplanation, Mode=OneWay}" />
+            </TextBlock>
+          </StackPanel>
+          <StackPanel Grid.Column="1" VerticalAlignment="Top" Margin="16,2,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+              <Button Content="Suggested" Command="{Binding SelectSuggestedCommand}" Padding="10,3,10,4" MinHeight="28"
+                      AutomationProperties.Name="{Binding Number, StringFormat=Select suggested removals in group {0}}" />
+              <Button Content="None" Command="{Binding ClearCommand}" Padding="10,3,10,4" MinHeight="28" Margin="6,0,0,0"
+                      AutomationProperties.Name="{Binding Number, StringFormat=Clear selections in group {0}}" />
+            </StackPanel>
+            <TextBlock Text="{Binding SelectionDetail}" Style="{StaticResource TertiaryCaptionText}" HorizontalAlignment="Right" Margin="0,6,0,0"
+                       AutomationProperties.Name="{Binding SelectionDetail}" />
+          </StackPanel>
+        </Grid>
+        <Border DockPanel.Dock="Top" Style="{StaticResource Divider}" Margin="28,0,24,0" />
+
+        <ListBox ItemsSource="{Binding Files}" Padding="28,0,18,12"
+                 KeyboardNavigation.TabNavigation="Continue" AutomationProperties.Name="{Binding Number, StringFormat=Files in group {0}}">
+          <ListBox.ItemContainerStyle>
+            <Style TargetType="ListBoxItem" BasedOn="{StaticResource PlainItem}">
+              <Setter Property="AutomationProperties.Name" Value="{Binding Details}" />
+            </Style>
+          </ListBox.ItemContainerStyle>
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="*" />
+                  <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <!-- Role tint fading out by 55 % and a 3 px role edge -->
+                <Border x:Name="Tint" Background="Transparent">
+                  <Border.OpacityMask>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                      <GradientStop Color="Black" Offset="0" />
+                      <GradientStop Color="Transparent" Offset="0.55" />
+                    </LinearGradientBrush>
+                  </Border.OpacityMask>
+                </Border>
+                <Border x:Name="Edge" Width="3" HorizontalAlignment="Left" Margin="0,14" CornerRadius="1.5" Background="{DynamicResource ProtectedEdgeBrush}" />
+                <Grid Margin="16,14,8,14">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <Border Width="160" Height="90" CornerRadius="4" Background="{DynamicResource ThumbnailBrush}" VerticalAlignment="Top" ClipToBounds="True">
+                    <Grid>
+                      <TextBlock Style="{StaticResource IconText}" Text="&#xE714;" FontSize="22" HorizontalAlignment="Center" Foreground="{DynamicResource TextTertiaryBrush}"
+                                 Visibility="{Binding HasThumbnail, Converter={StaticResource Hidden}}" />
+                      <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality" />
+                      <Border Background="#B3000000" CornerRadius="3" Padding="5,1,5,2" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,5,5"
+                              Visibility="{Binding DurationBadge, Converter={StaticResource Visible}}">
+                        <TextBlock Text="{Binding DurationBadge}" Foreground="White" FontSize="11" FontFamily="{StaticResource MonoFont}" />
+                      </Border>
+                    </Grid>
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="18,0,12,0">
+                    <StackPanel Orientation="Horizontal">
+                      <Border Style="{StaticResource RoleBadge}" Tag="{Binding Role}">
+                        <StackPanel Orientation="Horizontal">
+                          <TextBlock Style="{StaticResource IconText}" FontSize="10" Text="{Binding RoleGlyph}" Margin="0,0,4,0" Foreground="{DynamicResource OnBadgeBrush}" />
+                          <TextBlock Text="{Binding RoleText}" AutomationProperties.Name="{Binding Role, StringFormat=Suggested action: {0}}" />
+                        </StackPanel>
+                      </Border>
+                      <TextBlock Text="{Binding RoleNote}" Style="{StaticResource TertiaryCaptionText}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding Name}" Style="{StaticResource BodyStrongText}" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding RelativePath}" AutomationProperties.Name="{Binding RelativePath, StringFormat=File: {0}}" />
+                    <TextBlock Text="{Binding Folder}" Style="{StaticResource MonoCaptionText}" Margin="0,1,0,0" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding TimeText}" Style="{StaticResource CaptionText}" Margin="0,8,0,0" />
+                    <ItemsControl ItemsSource="{Binding Attributes}" Margin="0,3,0,0" Focusable="False">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <StackPanel Orientation="Horizontal" Margin="0,0,10,0">
+                            <TextBlock x:Name="Mark" FontSize="12" Margin="0,0,4,0" Visibility="Collapsed" />
+                            <TextBlock x:Name="Value" Text="{Binding Text}" Style="{StaticResource CaptionText}" AutomationProperties.Name="{Binding AutomationText}" />
+                          </StackPanel>
+                          <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding IsMatch}" Value="True">
+                              <Setter TargetName="Mark" Property="Text" Value="✓" />
+                              <Setter TargetName="Mark" Property="Visibility" Value="Visible" />
+                              <Setter TargetName="Mark" Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+                              <Setter TargetName="Value" Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsDifferent}" Value="True">
+                              <Setter TargetName="Mark" Property="Text" Value="≠" />
+                              <Setter TargetName="Mark" Property="Visibility" Value="Visible" />
+                              <Setter TargetName="Mark" Property="Foreground" Value="{DynamicResource CautionBrush}" />
+                              <Setter TargetName="Value" Property="Foreground" Value="{DynamicResource CautionBrush}" />
+                            </DataTrigger>
+                          </DataTemplate.Triggers>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="{Binding Note}" Style="{StaticResource TertiaryCaptionText}" Margin="0,6,0,0" TextWrapping="Wrap" MaxWidth="460" HorizontalAlignment="Left"
+                               Visibility="{Binding HasNote, Converter={StaticResource Visible}}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                    <CheckBox Content="Remove this file" IsChecked="{Binding IsSelected}" Visibility="{Binding CanSelect, Converter={StaticResource Visible}}"
+                              AutomationProperties.Name="{Binding AutomationName}" />
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding CannotSelect, Converter={StaticResource Visible}}" ToolTip="This file can't be selected for removal">
+                      <TextBlock Style="{StaticResource IconText}" FontSize="13" Text="&#xE72E;" Foreground="{DynamicResource TextTertiaryBrush}" Margin="0,0,6,0" />
+                      <TextBlock Text="{Binding CannotSelectText}" Style="{StaticResource TertiaryCaptionText}" />
+                    </StackPanel>
+                  </StackPanel>
+                </Grid>
+                <Border Grid.Row="1" Style="{StaticResource Divider}" />
+              </Grid>
+              <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Role}" Value="Keep">
+                  <Setter TargetName="Edge" Property="Background" Value="{DynamicResource SuccessBrush}" />
+                  <Setter TargetName="Tint" Property="Background" Value="{DynamicResource KeepRowTintBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Role}" Value="Remove">
+                  <Setter TargetName="Edge" Property="Background" Value="{DynamicResource CriticalBrush}" />
+                  <Setter TargetName="Tint" Property="Background" Value="{DynamicResource RemoveRowTintBrush}" />
+                </DataTrigger>
+              </DataTemplate.Triggers>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Grid>
+
+    <!-- Action bar: the only accent-filled button on this page -->
+    <Grid Grid.Row="2">
+      <Border Style="{StaticResource Divider}" VerticalAlignment="Top" />
+      <ProgressBar IsIndeterminate="{Binding IsWorking}" VerticalAlignment="Top" Visibility="{Binding IsWorking, Converter={StaticResource Visible}}"
+                   AutomationProperties.Name="Review operation in progress" />
+      <Grid Margin="24,14,24,16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="{Binding SelectionTotal}" Style="{StaticResource SubtitleText}" FontSize="18" AutomationProperties.Name="{Binding SelectionAutomationName}" />
+          <TextBlock Text="{Binding SelectionDetail}" Style="{StaticResource CaptionText}" />
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock Text="Removal method" Style="{StaticResource SecondaryText}" VerticalAlignment="Center" Margin="0,0,10,0" />
+          <ComboBox Width="180" SelectedIndex="{Binding RemovalMethodIndex}" AutomationProperties.Name="Deletion method"
+                    IsEnabled="{Binding IsWorking, Converter={StaticResource Not}}">
+            <ComboBoxItem Content="Recovery (undoable)" AutomationProperties.Name="Recovery" />
+            <ComboBoxItem Content="Permanent delete" AutomationProperties.Name="Permanent" />
+          </ComboBox>
+          <Button Content="Export dry run…" Margin="8,0,0,0" Command="{Binding ExportCommand}" AutomationProperties.Name="Export dry run"
+                  Visibility="{Binding IsExporting, Converter={StaticResource Hidden}}" />
+          <Button Content="Cancel export" Margin="8,0,0,0" Command="{Binding CancelExportCommand}" AutomationProperties.Name="Cancel export"
+                  Visibility="{Binding IsExporting, Converter={StaticResource Visible}}" />
+          <Button Margin="8,0,0,0" MinWidth="150" Command="{Binding MoveCommand}" AutomationProperties.Name="{Binding MoveAutomationName}">
+            <Button.Style>
+              <Style TargetType="Button" BasedOn="{StaticResource AccentButton}">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding PermanentDeletion}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource CriticalBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource OnBadgeBrush}" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Button.Style>
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource IconText}" FontSize="14" Margin="0,0,8,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                <TextBlock.Text><Binding Path="MoveGlyph" /></TextBlock.Text></TextBlock>
+              <TextBlock Text="{Binding MoveText}" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </Grid>
+</UserControl>

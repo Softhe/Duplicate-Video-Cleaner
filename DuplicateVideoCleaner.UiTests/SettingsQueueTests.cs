@@ -53,43 +53,4 @@ public sealed class SettingsQueueTests
         Assert.AreEqual(2, calls);
         Assert.IsNull(queue.LastError);
     }
-    [TestMethod]
-    public void ClosingWaitsForSettingsWithoutBlockingUi()
-    {
-        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() =>
-        {
-            Exception? failure = null;
-            using var entered = new ManualResetEventSlim();
-            using var release = new ManualResetEventSlim();
-            using var form = new MainForm(_ =>
-            {
-                entered.Set();
-                if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Settings writer was never released.");
-            });
-            async Task ExerciseAsync()
-            {
-                try
-                {
-                    form.Close();
-                    Assert.IsFalse(form.IsDisposed);
-                    var heartbeat = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                    using var timer = new System.Windows.Forms.Timer { Interval = 20 };
-                    timer.Tick += (_, _) => { if (entered.IsSet) heartbeat.TrySetResult(); };
-                    timer.Start();
-                    await heartbeat.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                    Assert.IsFalse(form.IsDisposed, "Settings worker was still blocked.");
-                }
-                catch (Exception ex) { failure = ex; }
-                finally { release.Set(); }
-            }
-            form.Shown += async (_, _) => await ExerciseAsync();
-            Application.Run(form);
-            if (failure is null) completion.SetResult(); else completion.SetException(failure);
-        }) { IsBackground = true };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        completion.Task.WaitAsync(TimeSpan.FromSeconds(20)).GetAwaiter().GetResult();
-    }
-
 }

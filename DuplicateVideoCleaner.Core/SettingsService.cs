@@ -4,8 +4,12 @@ using System.Text;
 
 namespace DuplicateVideoCleaner;
 
+// Dark is the default, including for settings files written before themes existed.
+internal enum ThemePreference { Dark, Light, System }
+
 internal sealed record AppSettings
 {
+    internal const int MaxRecentFolders = 5;
     public int SchemaVersion { get; init; } = 1;
     public string LastFolder { get; init; } = string.Empty;
     public int ThresholdSeconds { get; init; } = 60;
@@ -18,6 +22,20 @@ internal sealed record AppSettings
     public int WindowWidth { get; init; } = 1160;
     public int WindowHeight { get; init; } = 740;
     public bool Maximized { get; init; }
+    public ThemePreference Theme { get; init; } = ThemePreference.Dark;
+    public string[] RecentFolders { get; init; } = [];
+
+    // Most recent first, without duplicates (case-insensitive), capped.
+    internal AppSettings WithRecentFolder(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder)) return this;
+        var trimmed = folder.Trim();
+        return this with
+        {
+            RecentFolders = RecentFolders.Prepend(trimmed)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxRecentFolders).ToArray()
+        };
+    }
 }
 
 internal sealed class SettingsService
@@ -79,6 +97,9 @@ internal sealed class SettingsService
         ThresholdSeconds = Math.Clamp(settings.ThresholdSeconds, 1, 86400),
         KeepMode = Enum.IsDefined(settings.KeepMode) ? settings.KeepMode : KeepMode.Oldest,
         WindowWidth = Math.Clamp(settings.WindowWidth, 920, 7680),
-        WindowHeight = Math.Clamp(settings.WindowHeight, 600, 4320)
+        WindowHeight = Math.Clamp(settings.WindowHeight, 600, 4320),
+        Theme = Enum.IsDefined(settings.Theme) ? settings.Theme : ThemePreference.Dark,
+        RecentFolders = (settings.RecentFolders ?? []).Where(folder => !string.IsNullOrWhiteSpace(folder))
+            .Select(folder => folder.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(AppSettings.MaxRecentFolders).ToArray()
     };
 }
