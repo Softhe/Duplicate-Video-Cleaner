@@ -8,14 +8,14 @@ Duplicate Video Cleaner groups `.mp4` and `.mkv` files by their timestamps. It c
 
 ## Download
 
-Windows x64. Both 1.1.2 packages include .NET and ffprobe.
+Windows x64. Both 1.1.3 packages include .NET and ffprobe.
 
 | Download | How to use it |
 | --- | --- |
-| [Setup EXE](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.2/DuplicateVideoCleaner-1.1.2-win-x64-setup.exe) | Run setup, then open the app from the Start menu. Installs for your Windows account without administrator rights. |
-| [Portable ZIP](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.2/DuplicateVideoCleaner-1.1.2-win-x64-portable.zip) | Extract the entire archive, then run `DuplicateVideoCleaner.exe` from the extracted folder. Keep the bundled `tools` folder beside it. No installation is required. |
+| [Setup EXE](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.3/DuplicateVideoCleaner-1.1.3-win-x64-setup.exe) | Run setup, then open the app from the Start menu. Installs for your Windows account without administrator rights. |
+| [Portable ZIP](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.3/DuplicateVideoCleaner-1.1.3-win-x64-portable.zip) | Extract the entire archive, then run `DuplicateVideoCleaner.exe` from the extracted folder. Keep the bundled `tools` folder beside it. No installation is required. |
 
-[Download checksums](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.2/SHA256SUMS.txt) · [Release notes](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/tag/v1.1.2)
+[Download checksums](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/download/v1.1.3/SHA256SUMS.txt) · [Release notes](https://github.com/Softhe/Duplicate-Video-Cleaner/releases/tag/v1.1.3)
 
 The published setup is unsigned. Preferences are saved in your Windows user profile. Uninstall through Windows Installed apps. Recovery media stays with its source folder and is not removed by uninstall.
 
@@ -112,8 +112,8 @@ The reviewed FFmpeg version, dated asset, expected SHA256, source revision, and 
 
 ```powershell
 ./build/Test-BuildScripts.ps1 -VerifyDependency
-./build/Test-InstalledSetup.ps1 -SetupPath ./release/DuplicateVideoCleaner-1.1.2-win-x64-setup.exe -PreviousSetupPath C:/path/to/1.1.1-setup.exe -RequireVirtualMachine -RunUiTests -EvidencePath ./release/installer-acceptance.json
-./build/Test-PortablePackage.ps1 -ArchivePath ./release/DuplicateVideoCleaner-1.1.2-win-x64-portable.zip -RequireVirtualMachine -RunUiTests -EvidencePath ./release/portable-acceptance.json
+./build/Test-InstalledSetup.ps1 -SetupPath ./release/DuplicateVideoCleaner-1.1.3-win-x64-setup.exe -PreviousSetupPath C:/path/to/1.1.2-setup.exe -RequireVirtualMachine -RunUiTests -EvidencePath ./release/installer-acceptance.json
+./build/Test-PortablePackage.ps1 -ArchivePath ./release/DuplicateVideoCleaner-1.1.3-win-x64-portable.zip -RequireVirtualMachine -RunUiTests -EvidencePath ./release/portable-acceptance.json
 ```
 
 The setup check refuses to run if this app is already installed. It uses a temporary install directory and isolated preferences, verifies the payload and bundled ffprobe, launches the app, and checks uninstall cleanup. Acceptance preserves its evidence. Public release requires VM acceptance of the exact setup checksum, upgrade, preferences, installed UI, and uninstall.
@@ -125,7 +125,7 @@ Qualification also launches the previous installed application to save non-defau
 To test real video metadata through the UI, use a valid MP4 fixture. Run this in a separate PowerShell session so test overrides end with that session:
 
 ```powershell
-$env:DVC_TEST_FFPROBE = (Resolve-Path release/DuplicateVideoCleaner-1.1.2-win-x64-portable/tools/ffprobe.exe).Path
+$env:DVC_TEST_FFPROBE = (Resolve-Path release/DuplicateVideoCleaner-1.1.3-win-x64-portable/tools/ffprobe.exe).Path
 $env:DVC_TEST_MEDIA = (Resolve-Path C:/path/to/sample.mp4).Path
 dotnet test DuplicateVideoCleaner.UiTests/DuplicateVideoCleaner.UiTests.csproj -c Release --filter MetadataSuccessReachesReviewConfidenceAndExport
 Remove-Item Env:DVC_TEST_FFPROBE, Env:DVC_TEST_MEDIA
@@ -141,7 +141,7 @@ The tool captures the app with PrintWindow, without including the desktop backgr
 
 The core checks cover scanning, settings, sandbox isolation, metadata, confidence, export, object-bound removal and Recovery. Review uses 25 groups per page and 25 file rows per detail page; selection and export include all pages. Activity keeps the latest 200 entries. The UI checks cover navigation, selection, scan cancellation, confirmation defaults, and review/export behavior.
 
-Selection uses indexed per-file and per-group totals, so toggling one file does not traverse the entire library. Reproduce the synthetic metadata cache and selection measurements with `./build/Measure-Performance.ps1 -FfprobePath ./release/DuplicateVideoCleaner-1.1.2-win-x64-portable/tools/ffprobe.exe`. See [performance measurements and their limits](docs/PERFORMANCE.md). The measurements use generated video and in-memory records, not private recordings or a claim about real-library throughput.
+Selection uses indexed per-file and per-group totals, so toggling one file does not traverse the entire library. Reproduce the synthetic metadata cache and selection measurements with `./build/Measure-Performance.ps1 -FfprobePath ./release/DuplicateVideoCleaner-1.1.3-win-x64-portable/tools/ffprobe.exe`. See [performance measurements and their limits](docs/PERFORMANCE.md). The measurements use generated video and in-memory records, not private recordings or a claim about real-library throughput.
 
 </details>
 
