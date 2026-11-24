@@ -135,10 +135,15 @@ internal sealed class ActivityViewModel : ObservableObject
         get => _inspectArchived;
         set
         {
-            if (!Set(ref _inspectArchived, value) || _main.IsBusy) return;
-            _ = ReloadAsync();
+            // The menu item is disabled while busy (CanChangeInspectArchived); if a change still
+            // arrives then, the running listing is marked stale and the next visit reloads.
+            if (!Set(ref _inspectArchived, value)) return;
+            if (_main.IsBusy) _stale = true;
+            else _ = ReloadAsync();
         }
     }
+
+    public bool CanChangeInspectArchived => !_main.IsBusy;
 
     public int SelectedCount => Items.Count(item => item.IsSelected);
     public long SelectedBytes => Items.Where(item => item.IsSelected).Sum(item => item.Entry.Size);
@@ -147,7 +152,7 @@ internal sealed class ActivityViewModel : ObservableObject
     // Header check box: all, none, or some (null).
     public bool? AllSelected => Items.Count == 0 || SelectedCount == 0 ? false : SelectedCount == Items.Count ? true : null;
 
-    internal void OnBusyChanged() => Raise(nameof(IsWorking), nameof(IsEmpty));
+    internal void OnBusyChanged() => Raise(nameof(IsWorking), nameof(IsEmpty), nameof(CanChangeInspectArchived));
 
     internal void OnRecoverySelectionChanged()
     {
@@ -206,7 +211,8 @@ internal sealed class ActivityViewModel : ObservableObject
                 return (Files: files, Warnings: warnings);
             });
             Items = result.Files.Select(entry => new RecoveryItemViewModel(this, entry, root)).ToArray();
-            _stale = false;
+            // Fresh only if it was read with the current archive setting.
+            _stale = archived != InspectArchived;
             RecoveryStatus = result.Warnings.Count > 0
                 ? $"{result.Warnings.Count} locations could not be read. First error: {result.Warnings[0]}"
                 : string.Empty;

@@ -148,7 +148,7 @@ public sealed class WorkspaceWorkflowTests
             "Cancel must have keyboard focus when the confirmation opens.");
         Assert.IsFalse(Find("Move selected files to Recovery").IsEnabled, "The window behind the dialog must be inactive.");
         CaptureEvidence("confirmation");
-        Keyboard.Press(VirtualKeyShort.ESCAPE);
+        Keyboard.Type(VirtualKeyShort.ESCAPE);
         WaitUntilGone("Move 1 file to Recovery?");
 
         var method = FindControl("Deletion method", ControlType.ComboBox).AsComboBox();
@@ -158,7 +158,10 @@ public sealed class WorkspaceWorkflowTests
         WaitFor("Delete selected files permanently").AsButton().Invoke();
         WaitFor("Permanently delete 1 file?");
         Assert.IsNotNull(Find("This cannot be undone. The files will not go to Recovery."));
-        Keyboard.Press(VirtualKeyShort.ENTER);
+        // Even with focus moved to the destructive button, Enter goes to the default (Cancel) button.
+        Find("Delete permanently").Focus();
+        Assert.IsTrue(Retry.WhileFalse(() => _automation.FocusedElement()?.Name == "Delete permanently", TimeSpan.FromSeconds(5)).Result);
+        Keyboard.Type(VirtualKeyShort.ENTER);
         WaitUntilGone("Permanently delete 1 file?");
         Assert.IsTrue(File.Exists(Path.Combine(_root, "2026-08-02 10-00-30 second.mkv")), "Enter must cancel, never confirm.");
     }
@@ -205,7 +208,7 @@ public sealed class WorkspaceWorkflowTests
         Assert.IsTrue(_automation.GetDesktop().FindFirstDescendant(cf => cf.ByName("Dark theme"))!.Patterns.SelectionItem.Pattern.IsSelected.Value,
             "Dark must be the default theme.");
         light.Patterns.SelectionItem.Pattern.Select();
-        Keyboard.Press(VirtualKeyShort.ESCAPE);
+        Keyboard.Type(VirtualKeyShort.ESCAPE);
         CaptureEvidence("light-theme");
         Assert.IsTrue(Retry.WhileFalse(() => File.Exists(Path.Combine(_root, "settings.json")) &&
             File.ReadAllText(Path.Combine(_root, "settings.json")).Contains("\"Theme\": 1"), TimeSpan.FromSeconds(5)).Result,

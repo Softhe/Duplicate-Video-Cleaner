@@ -64,7 +64,7 @@ try
     var light = Retry.WhileNull(() => automation.GetDesktop().FindFirstDescendant(cf => cf.ByName("Light theme")), TimeSpan.FromSeconds(5)).Result
         ?? throw new IOException("Theme setting did not appear.");
     light.Patterns.SelectionItem.Pattern.Select();
-    Keyboard.Press(VirtualKeyShort.ESCAPE);
+    Keyboard.Type(VirtualKeyShort.ESCAPE);
     Shortcut(VirtualKeyShort.KEY_2);
     Wait("Review workspace");
     Thread.Sleep(1000);

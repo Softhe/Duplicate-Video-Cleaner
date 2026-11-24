@@ -166,6 +166,58 @@ public sealed class ReviewModelTests
         });
     }
 
+    [TestMethod]
+    public void ThumbnailsAreReleasedWithTheirGroupAndRequestedAgainOnReturn()
+    {
+        Run(() =>
+        {
+            var provider = new RecordingThumbnails();
+            var main = CreateMain(out _);
+            main.Review.Thumbnails = provider;
+            Populate(main, CreateGroups(2, 2));
+            var first = main.Review.Groups[0];
+            var row = first.Files[0];
+            Assert.IsNull(row.Thumbnail);
+            Assert.AreEqual(1, provider.Requests.Count, "Showing a row requests its thumbnail once.");
+            Assert.IsNull(row.Thumbnail);
+            Assert.AreEqual(1, provider.Requests.Count, "A pending request is not repeated.");
+
+            // Moving to another group cancels the queue; coming back must ask again.
+            main.Review.SelectedGroup = main.Review.Groups[1];
+            Assert.IsTrue(provider.Cancelled > 0);
+            var lateCallback = provider.Requests[0].Loaded;
+            main.Review.SelectedGroup = first;
+            Assert.IsNull(row.Thumbnail);
+            Assert.AreEqual(2, provider.Requests.Count(request => request.File == row.Candidate), "A cancelled request was not retried.");
+
+            // A result for the released request is ignored; the current one is shown.
+            var image = System.Windows.Media.Imaging.BitmapSource.Create(1, 1, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, new byte[4], 4);
+            lateCallback(image);
+            Assert.IsNull(row.Thumbnail, "A late result restored a released image.");
+            provider.Requests[^1].Loaded(image);
+            Assert.AreSame(image, row.Thumbnail);
+
+            // Leaving the group releases the image so only the provider's bounded cache keeps it.
+            main.Review.SelectedGroup = main.Review.Groups[1];
+            Assert.IsFalse(row.HasThumbnail, "Rows of a group that is not shown must not hold images.");
+            return Task.CompletedTask;
+        });
+    }
+
+    private sealed class RecordingThumbnails : IThumbnailProvider
+    {
+        internal List<(VideoCandidate File, Action<System.Windows.Media.ImageSource> Loaded)> Requests { get; } = [];
+        internal int Cancelled { get; private set; }
+        public bool Paused { get; set; }
+        public bool Enabled { get; set; } = true;
+        public System.Windows.Media.ImageSource? Request(VideoCandidate file, TimeSpan? duration, Action<System.Windows.Media.ImageSource> loaded)
+        {
+            Requests.Add((file, loaded));
+            return null;
+        }
+        public void CancelPending() => Cancelled++;
+    }
+
     internal static MainViewModel CreateMain(out string settingsPath, Action<AppSettings>? writer = null)
     {
         settingsPath = Path.Combine(Path.GetTempPath(), "dvc-ui-settings-" + Guid.NewGuid().ToString("N") + ".json");

@@ -40,7 +40,7 @@
               <MenuItem Header="Archive completed history…" Command="{Binding ArchiveHistoryCommand}" AutomationProperties.Name="Archive completed recovery history">
                 <MenuItem.Icon><TextBlock Style="{StaticResource IconText}" FontSize="14" Text="&#xE7B8;" /></MenuItem.Icon>
               </MenuItem>
-              <MenuItem Header="Inspect archived payloads" IsCheckable="True" IsChecked="{Binding InspectArchived}" AutomationProperties.Name="Inspect archived recovery payloads">
+              <MenuItem Header="Inspect archived payloads" IsCheckable="True" IsChecked="{Binding InspectArchived}" IsEnabled="{Binding CanChangeInspectArchived}" AutomationProperties.Name="Inspect archived recovery payloads">
                 <MenuItem.Icon><TextBlock Style="{StaticResource IconText}" FontSize="14" Text="&#xE73E;"
                                           Visibility="{Binding InspectArchived, Converter={StaticResource Visible}}" /></MenuItem.Icon>
               </MenuItem>

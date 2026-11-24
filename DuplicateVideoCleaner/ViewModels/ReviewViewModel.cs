@@ -53,8 +53,10 @@ internal sealed class ReviewViewModel : ObservableObject
         get => _selectedGroup;
         set
         {
+            var previous = _selectedGroup;
             if (!Set(ref _selectedGroup, value)) return;
             Thumbnails?.CancelPending();
+            previous?.ReleaseThumbnails();
             Raise(nameof(HasSelectedGroup));
         }
     }

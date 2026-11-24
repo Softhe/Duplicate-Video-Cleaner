@@ -56,25 +56,42 @@ internal sealed class ThumbnailExtractor : IAsyncDisposable
         "-f", "rawvideo", "pipe:1"
     ];
 
-    // Null when the frame cannot be produced (missing tool, changed file, decode error, timeout).
-    // Throws only OperationCanceledException.
+    // True when the file still matches its scan snapshot. Cached frames are shown only then,
+    // so an edited or replaced file never shows an old frame.
+    internal static bool IsUnchanged(VideoCandidate file)
+    {
+        try
+        {
+            using var source = OpenValidated(file);
+            return true;
+        }
+        catch (Exception) { return false; }
+    }
+
+    // Opened without write sharing: no other program can write the file while the frame is decoded,
+    // and a file another program is still writing (a recording in progress) gets no thumbnail.
+    private static FileStream OpenValidated(VideoCandidate file)
+    {
+        using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(file.FullPath)!);
+        var source = WindowsProbeSandbox.OpenReadOnlyMedia(file.FullPath, allowWriters: false);
+        try
+        {
+            // Only the file Review shows: a replaced or edited file gets no frame.
+            FileSnapshot.ValidateReadHandle(source.SafeFileHandle, file);
+            return source;
+        }
+        catch { source.Dispose(); throw; }
+    }
+
+    // Null when the frame cannot be produced (missing tool, changed or busy file, decode error,
+    // timeout). Throws only OperationCanceledException.
     internal async Task<ThumbnailFrame?> ExtractAsync(VideoCandidate file, TimeSpan? duration, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsAvailable || _disposed) return null;
-        FileStream? source = null;
-        try
-        {
-            using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(file.FullPath)!);
-            source = WindowsProbeSandbox.OpenReadOnlyMedia(file.FullPath, allowWriters: true);
-            // Only the file Review shows: a replaced or edited file gets no frame.
-            FileSnapshot.ValidateReadHandle(source.SafeFileHandle, file);
-        }
-        catch (Exception)
-        {
-            source?.Dispose();
-            return null;
-        }
+        FileStream source;
+        try { source = OpenValidated(file); }
+        catch (Exception) { return null; }
         using var input = source;
         var sandbox = await GetSandboxAsync(cancellationToken).ConfigureAwait(false);
         if (sandbox is null) return null;

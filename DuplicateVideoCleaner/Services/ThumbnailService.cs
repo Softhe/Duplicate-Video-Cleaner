@@ -69,7 +69,8 @@ internal sealed class ThumbnailService : IThumbnailProvider, IAsyncDisposable
         var key = ThumbnailCache.KeyFor(file);
         lock (_gate)
         {
-            if (_memory.TryGetValue(key, out var image)) return image;
+            // Even a frame already in memory goes through the worker, which first checks that the
+            // file still matches the scan (file IO stays off the UI thread).
             if (_pending.TryGetValue(key, out var existing))
             {
                 existing.Callbacks.Add(loaded);
@@ -145,6 +146,10 @@ internal sealed class ThumbnailService : IThumbnailProvider, IAsyncDisposable
 
     private async Task<ImageSource?> LoadAsync(PendingThumbnail request)
     {
+        // A file changed since the scan keeps its placeholder, whatever is cached.
+        if (!ThumbnailExtractor.IsUnchanged(request.File)) return null;
+        lock (_gate)
+            if (_memory.TryGetValue(request.Key, out var remembered)) return remembered;
         var cacheable = _cache is not null && ThumbnailCache.CanCache(request.File);
         var frame = cacheable ? _cache!.TryGet(request.Key) : null;
         if (frame is null)

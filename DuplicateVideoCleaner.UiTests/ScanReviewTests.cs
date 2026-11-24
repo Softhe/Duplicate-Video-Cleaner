@@ -255,13 +255,17 @@ public sealed class ScanReviewTests
         {
             var wait = Path.Combine(root, "wait-2026-01-01 10-00-02 pending.mp4");
             File.WriteAllText(wait, "wait fixture");
-            var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            main.CloseRequested += () => closed.TrySetResult();
+            var settingsPath = Path.Combine(root, "settings.json");
+            var closed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            main.CloseRequested += () => closed.TrySetResult(File.Exists(settingsPath) && new SettingsService(settingsPath).Load().ThresholdSeconds == 75);
             var scan = main.Scan.ScanAsync();
             await WaitForProbe(wait);
+            main.Scan.ThresholdSeconds = 75;
             Assert.IsFalse(await main.RequestCloseAsync(), "The window must not close while a scan runs.");
+            Assert.IsFalse(main.TryBeginBusy(BusyOperation.Export), "No second operation may start while closing.");
             await scan.WaitAsync(TimeSpan.FromSeconds(10));
-            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsTrue(await closed.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+                "Settings changed during the operation must be saved before the window closes.");
             Assert.IsTrue(File.Exists(wait));
             AssertProbeExited(wait);
         }, useProbeFixture: true);
@@ -350,7 +354,7 @@ public sealed class ScanReviewTests
             release.Set();
             await exportTask.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(0, Directory.GetFiles(root, "DuplicateVideoDryRun-*").Length, "Cancelled export left a partial report or temporary file.");
-            if (closeWindow) Assert.IsTrue(closed, "The window did not close after the export stopped.");
+            if (closeWindow) await WaitUntil(() => closed, "The window did not close after the export stopped (settings are saved first).");
             else
             {
                 Assert.IsFalse(main.Review.IsExporting);

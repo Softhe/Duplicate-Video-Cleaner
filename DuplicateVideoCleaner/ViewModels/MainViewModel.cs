@@ -138,17 +138,20 @@ internal sealed class MainViewModel : ObservableObject
     }
 
     // Operations take the shared busy flag so only one file operation runs at a time.
+    // No new operation starts once closing has begun saving settings.
     internal bool TryBeginBusy(BusyOperation operation)
     {
-        if (IsBusy) return false;
+        if (IsBusy || _flushing) return false;
         Busy = operation;
         return true;
     }
 
+    // A close requested during the operation now continues through the normal path, which saves
+    // and flushes settings (including the final window placement) before the window closes.
     internal void EndBusy()
     {
         Busy = BusyOperation.None;
-        if (CloseWhenIdle) CloseRequested?.Invoke();
+        if (CloseWhenIdle) _ = RequestCloseAsync();
     }
 
     internal void OnResultsChanged()

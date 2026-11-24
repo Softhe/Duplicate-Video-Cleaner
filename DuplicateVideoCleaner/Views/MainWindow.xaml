@@ -244,7 +244,7 @@
                 <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
-              <Button x:Name="DialogPrimary" Content="{Binding PrimaryText}" Command="{Binding PrimaryCommand}"
+              <Button x:Name="DialogPrimary" Content="{Binding PrimaryText}" Command="{Binding PrimaryCommand}" KeyboardNavigation.AcceptsReturn="False"
                       Visibility="{Binding HasPrimary, Converter={StaticResource Visible}}">
                 <Button.Style>
                   <Style TargetType="Button" BasedOn="{StaticResource BaseButton}">

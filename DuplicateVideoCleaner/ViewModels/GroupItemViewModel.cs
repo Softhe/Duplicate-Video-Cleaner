@@ -69,6 +69,13 @@ internal sealed class GroupItemViewModel : ObservableObject
 
     internal bool FilesBuilt => _files is not null;
 
+    // The group is no longer shown: release its rows' images and pending thumbnail requests.
+    internal void ReleaseThumbnails()
+    {
+        if (_files is null) return;
+        foreach (var file in _files) file.ReleaseThumbnail();
+    }
+
     private IReadOnlyList<FileItemViewModel> BuildFiles() =>
         Group.Files.Select(file => new FileItemViewModel(this, _workspace, Group, _workspace.Reviewed[file.FullPath])).ToArray();
 
@@ -184,7 +191,10 @@ internal sealed class FileItemViewModel : ObservableObject
     }
 
     private bool _thumbnailRequested;
+    private int _thumbnailGeneration;
 
+    // Requested when a row is shown. Rows of groups that are not shown hold no image (see
+    // ReleaseThumbnail), so only the provider's bounded cache keeps frames alive.
     public ImageSource? Thumbnail
     {
         get
@@ -192,13 +202,27 @@ internal sealed class FileItemViewModel : ObservableObject
             if (_thumbnail is null && !_thumbnailRequested)
             {
                 _thumbnailRequested = true;
-                _thumbnail = _group.RequestThumbnail(Candidate, Reviewed.Metadata.Duration, image => Thumbnail = image);
+                var generation = _thumbnailGeneration;
+                _thumbnail = _group.RequestThumbnail(Candidate, Reviewed.Metadata.Duration, image =>
+                {
+                    // A result that arrives after the row was released must not bring the image back.
+                    if (generation == _thumbnailGeneration) Thumbnail = image;
+                });
             }
             return _thumbnail;
         }
         private set { if (Set(ref _thumbnail, value)) Raise(nameof(HasThumbnail)); }
     }
     public bool HasThumbnail => _thumbnail is not null;
+
+    // Drops the image and any outstanding request; the next time the row is shown it asks again,
+    // which also retries requests cancelled when the user moved to another group.
+    internal void ReleaseThumbnail()
+    {
+        _thumbnailGeneration++;
+        _thumbnailRequested = false;
+        Thumbnail = null;
+    }
 
     public string Details =>
         $"{Candidate.RelativePath}\n{Candidate.Timestamp:yyyy-MM-dd HH:mm:ss} · {Candidate.TimestampSource}\n" +
