@@ -12,7 +12,7 @@ if ($RequireVirtualMachine -and -not $isVirtual) { throw 'Portable release quali
 try {
     Expand-Archive -LiteralPath $archive -DestinationPath $sandbox
     $payload = Join-Path $sandbox $folderName
-    foreach ($required in @('DuplicateVideoCleaner.exe', 'tools\ffprobe.exe', 'SHA256SUMS.txt', 'FFMPEG-LICENSE.txt', 'FFMPEG-BUILD.json')) {
+    foreach ($required in @('DuplicateVideoCleaner.exe', 'tools\ffprobe.exe', 'tools\ffmpeg.exe', 'SHA256SUMS.txt', 'FFMPEG-LICENSE.txt', 'FFMPEG-BUILD.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $payload $required))) { throw "Portable file missing: $required" }
     }
     foreach ($entry in Get-Content -LiteralPath (Join-Path $payload 'SHA256SUMS.txt')) {
@@ -22,11 +22,13 @@ try {
         if (-not $target.StartsWith($payload + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Hash entry escapes portable directory.' }
         if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $expected) { throw "Portable hash mismatch: $target" }
     }
-    foreach ($image in @('scan.png', 'review.png', 'review-details.png', 'confirmation.png', 'activity.png')) {
+    foreach ($image in @('scan.png', 'review.png', 'review-light.png', 'confirmation.png', 'activity.png')) {
         if (-not (Test-Path -LiteralPath (Join-Path $payload "docs\screenshots\$image"))) { throw "Bundled README image missing: $image" }
     }
     & (Join-Path $payload 'tools\ffprobe.exe') -version | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Portable ffprobe failed.' }
+    & (Join-Path $payload 'tools\ffmpeg.exe') -version | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Portable ffmpeg failed.' }
     $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $payload 'DuplicateVideoCleaner.exe'))
     $start.UseShellExecute = $false
     $start.Environment['DVC_SETTINGS_PATH'] = Join-Path $sandbox 'settings.json'

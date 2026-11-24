@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Native Calm Light v3</title>
+<style>
+/* ============ v2 tokens: darker base, fewer surfaces ============ */
+:root{
+  --mica:#F3F3F3;                      /* Mica light base: title bar / nav */
+  --layer:#F9F9F9;                     /* content layer (LayerFillColorDefault over Mica) */
+  --card:rgba(255,255,255,.7);         /* CardBackgroundFillColorDefault */
+  --stroke:rgba(0,0,0,.0803);          /* DividerStrokeColorDefault */
+  --cfill:rgba(255,255,255,.7);        /* ControlFillColorDefault */
+  --cfill-2:rgba(0,0,0,.0373);         /* SubtleFillColorSecondary: selected row */
+  --c-stroke:rgba(0,0,0,.1622);        /* ControlElevationBorder bottom */
+  --c-stroke-top:rgba(0,0,0,.0578);   /* ControlStrokeColorDefault */
+  --strong:rgba(0,0,0,.4458);          /* ControlStrongStrokeColorDefault */
+  --t1:rgba(0,0,0,.8956);
+  --t2:rgba(0,0,0,.6063);
+  --t3:rgba(0,0,0,.56);                /* raised from .4458 for AA */
+  --accent:#3F44B0;                    /* indigo Dark 1 – primary button, nav indicator, selection only */
+  --on-accent:#FFFFFF;
+  --ok:#0F7B0F; --warn:#9D5D00; --crit:#C42B1C;
+  --warn-bg:#FFF4CE;
+  --font:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",sans-serif;
+  --font-d:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",sans-serif;
+  --font-s:"Segoe UI Variable Small","Segoe UI Variable","Segoe UI",sans-serif;
+  --mono:"Cascadia Mono","Consolas",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1280px;height:800px;overflow:hidden;background:#fff}
+body{font-family:var(--font);font-size:14px;line-height:20px;color:var(--t1);-webkit-font-smoothing:antialiased}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+svg.i.s12{width:12px;height:12px;stroke-width:1.8}
+
+.screen{display:none}
+body[data-screen="scan"] #scan,body[data-screen="scan-empty"] #scan,
+body[data-screen="review"] #review,body[data-screen="confirm"] #review,
+body[data-screen="activity"] #activity{display:block}
+body[data-screen="confirm"] #dialog{display:flex}
+body[data-screen="scan-empty"] .only-busy,body[data-screen="scan"] .only-empty{display:none !important}
+
+.win{position:relative;width:1280px;height:800px;background:var(--mica);display:flex;flex-direction:column;overflow:hidden}
+.titlebar{height:40px;display:flex;align-items:center;flex:none;padding-left:8px}
+.tb-back{width:36px;height:32px;display:grid;place-items:center;color:rgba(0,0,0,.3614)}
+.appicon{width:18px;height:18px;margin:0 10px 0 6px}
+.tb-title{font-family:var(--font-s);font-size:12px}
+.caption{margin-left:auto;display:flex;height:40px}
+.caption div{width:46px;display:grid;place-items:center}
+.caption svg{width:10px;height:10px;stroke-width:1}
+.body{flex:1;display:flex;min-height:0}
+
+/* NavigationView – same expanded state on every screen */
+.nav{width:232px;flex:none;padding:4px 6px 12px;display:flex;flex-direction:column}
+.nav-ham{height:38px;width:44px;display:grid;place-items:center;margin-bottom:6px}
+.nav-item{position:relative;height:38px;display:flex;align-items:center;gap:14px;padding:0 12px;border-radius:5px;margin-bottom:3px}
+.nav-item.sel{background:var(--cfill)}
+.nav-item.sel::before{content:"";position:absolute;left:0;top:11px;width:3px;height:16px;border-radius:2px;background:var(--accent)}
+.nav-item .count{margin-left:auto;font-family:var(--font-s);font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+.nav-foot{margin-top:auto}
+.ver{font-family:var(--font-s);font-size:11px;color:var(--t3);padding:4px 12px 0}
+
+.layer{flex:1;min-width:0;background:var(--layer);border-top-left-radius:8px;border-left:1px solid var(--stroke);border-top:1px solid var(--stroke);display:flex;flex-direction:column;overflow:hidden}
+
+.title{font-family:var(--font-d);font-size:28px;line-height:36px;font-weight:600}
+.subtitle{font-family:var(--font-d);font-size:20px;line-height:28px;font-weight:600}
+.muted{color:var(--t2)}
+.faint{color:var(--t3)}
+.small{font-family:var(--font-s);font-size:12px;line-height:16px}
+.mono{font-family:var(--mono);font-size:12px}
+
+/* Controls */
+.btn{height:32px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 12px;border-radius:4px;font-size:14px;background:var(--cfill);border:1px solid var(--c-stroke-top);border-bottom-color:var(--c-stroke);white-space:nowrap}
+.btn.icon{width:32px;padding:0}
+.btn.accent{background:var(--accent);color:var(--on-accent);border-color:rgba(255,255,255,.08);border-bottom-color:rgba(0,0,0,.40);font-weight:600}
+.btn.danger{color:var(--crit)}
+.btn.disabled{background:rgba(0,0,0,.2169);border-color:transparent;color:#fff}
+.btn.lg{height:36px;padding:0 18px}
+.focus{outline:2px solid rgba(0,0,0,.8956);outline-offset:1px;box-shadow:inset 0 0 0 1px #fff}
+
+.seg{display:inline-flex;padding:2px;border-radius:5px;background:rgba(0,0,0,.0241);border:1px solid rgba(0,0,0,.0578)}
+.seg span{height:26px;display:inline-flex;align-items:center;padding:0 12px;border-radius:4px;color:var(--t2);font-size:13px}
+.seg span.on{background:var(--cfill-2);color:var(--t1);font-weight:600}
+
+.toggle{display:inline-flex;align-items:center;gap:12px}
+.toggle i{position:relative;width:40px;height:20px;border-radius:10px;display:block;background:var(--accent)}
+.toggle i::after{content:"";position:absolute;left:23px;top:4px;width:12px;height:12px;border-radius:50%;background:#fff}
+
+.cb{width:18px;height:18px;border-radius:4px;border:1px solid var(--strong);background:rgba(0,0,0,.0241);display:inline-grid;place-items:center;flex:none}
+.cb.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.cb.mixed{background:var(--accent);border-color:var(--accent)}
+.cb.mixed::after{content:"";width:8px;height:2px;background:#fff;border-radius:1px}
+.cb svg{width:12px;height:12px;stroke-width:2}
+
+.input{height:32px;border-radius:4px;background:var(--cfill);border:1px solid var(--c-stroke);border-bottom-color:var(--strong);display:flex;align-items:center;padding:0 8px 0 10px;gap:8px}
+.input.ph{color:var(--t3)}
+.combo{height:32px;border-radius:4px;background:var(--cfill);border:1px solid var(--c-stroke-top);border-bottom-color:var(--c-stroke);display:inline-flex;align-items:center;gap:10px;padding:0 10px 0 12px}
+.combo svg{color:var(--t2)}
+
+.thumb{position:relative;border-radius:4px;overflow:hidden;flex:none}
+.th-a{background:radial-gradient(55% 75% at 70% 70%,rgba(176,98,56,.7) 0,transparent 62%),radial-gradient(50% 60% at 20% 30%,rgba(52,74,120,.75) 0,transparent 70%),linear-gradient(160deg,#171D2B,#231B1C 60%,#0F0F13)}
+.th-a2{filter:saturate(.8) brightness(.95)}
+.dur{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.72);color:#fff;font-family:var(--font-s);font-size:11px;line-height:16px;padding:0 5px;border-radius:3px}
+
+.cmdbar{flex:none;height:64px;padding:0 24px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--stroke)}
+.cmdbar .big{font-family:var(--font-d);font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.cmdbar .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+
+/* ================= SCAN ================= */
+.scan-col{width:760px;margin:0 auto;padding-top:28px}
+.drop{margin-top:20px;border:1.5px dashed rgba(0,0,0,.22);border-radius:8px;padding:28px 32px 26px;display:flex;flex-direction:column;align-items:center;text-align:center}
+.drop .glyph{width:40px;height:40px;color:var(--t2);stroke-width:1.1;margin-bottom:8px}
+.drop h3{font-family:var(--font-d);font-size:18px;line-height:24px;font-weight:600}
+.drop-row{display:flex;gap:8px;margin-top:16px;width:520px}
+.drop-row .input{flex:1}
+.drop-row .input .chev{margin-left:auto;color:var(--t2)}
+.settings{margin-top:24px;background:var(--card);border:1px solid var(--stroke);border-radius:8px}
+.srow{display:flex;align-items:center;gap:16px;padding:14px 18px;min-height:62px}
+.srow + .srow{border-top:1px solid var(--stroke)}
+.srow .tx{flex:1}
+.srow .d{font-family:var(--font-s);font-size:12px;line-height:16px;color:var(--t2);margin-top:2px}
+.numbox{display:flex;align-items:center;gap:8px}
+.numbox .input{width:84px;justify-content:space-between}
+.numbox .spin{display:flex;flex-direction:column;color:var(--t2)}
+.numbox .spin svg{width:10px;height:10px}
+.scan-foot{margin-top:24px}
+.scan-foot .row{display:flex;align-items:center;gap:16px}
+.scan-foot .note{margin-top:10px}
+.pbar{position:relative;height:3px;display:flex;align-items:center;margin:8px 0 6px}
+.pbar::before{content:"";position:absolute;left:0;right:0;height:1px;background:var(--strong)}
+.pbar i{position:relative;height:3px;border-radius:2px;background:var(--accent)}
+
+/* ================= REVIEW ================= */
+.rv-head{padding:20px 24px 16px;display:flex;align-items:flex-end;gap:16px;flex:none}
+.rv-head .sub{margin-top:2px;font-size:13px;color:var(--t2)}
+.rv-head .sub .mono{color:var(--t1)}
+.rv-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.md{flex:1;display:flex;min-height:0;border-top:1px solid var(--stroke)}
+.master{width:288px;flex:none;border-right:1px solid var(--stroke);padding:8px 8px;overflow:hidden;position:relative}
+.master::after{content:"";position:absolute;left:0;right:0;bottom:0;height:48px;background:linear-gradient(rgba(249,249,249,0),#F9F9F9)}
+.gi{display:flex;align-items:flex-start;padding:9px 12px;border-radius:5px;gap:12px}
+.gi.sel{background:var(--cfill-2)}
+.gi .m{flex:1;min-width:0}
+.gi .n{font-size:14px;line-height:20px;white-space:nowrap}
+.gi .n .d{color:var(--t2)}
+.gi .s{font-family:var(--font-s);font-size:12px;line-height:18px;color:var(--t3);margin-top:2px;white-space:nowrap;display:flex;align-items:center;gap:8px}
+/* v1 colour cues: one chip style */
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 8px;border-radius:10px;font-family:var(--font-s);font-size:11px;font-weight:600;white-space:nowrap;border:1px solid transparent;line-height:18px}
+.chip.high{background:#DFF6DD;color:var(--ok);border-color:rgba(15,123,15,.18)}
+.chip.med{background:#FFF4CE;color:var(--warn);border-color:rgba(157,93,0,.20)}
+.chip.low{background:#FDE7E9;color:var(--crit);border-color:rgba(196,43,28,.18)}
+.chip.none{background:rgba(0,0,0,.0241);color:var(--t2);border-color:rgba(0,0,0,.0578)}
+.chip.lg{height:22px;border-radius:11px;font-size:12px}
+.gi .s .w{color:var(--warn)}
+.gi .sz{font-size:13px;font-variant-numeric:tabular-nums;color:var(--t1);padding-top:1px}
+.gi .sz.z{color:var(--t3)}
+
+.detail{flex:1;min-width:0;padding:20px 28px 0;overflow:hidden}
+.detail .meta{font-size:13px;color:var(--t2);margin-top:2px}
+.files{margin-top:16px}
+.fr{position:relative;display:flex;gap:20px;padding:16px 0 16px 16px;border-top:1px solid var(--stroke);align-items:flex-start}
+.fr::before{content:"";position:absolute;left:0;top:16px;bottom:16px;width:3px;border-radius:2px}
+.fr.keep{background:linear-gradient(90deg,rgba(15,123,15,.05),rgba(15,123,15,0) 55%)}
+.fr.remove{background:linear-gradient(90deg,rgba(196,43,28,.045),rgba(196,43,28,0) 55%)}
+.fr.keep::before{background:var(--ok)}
+.fr.remove::before{background:var(--crit)}
+.fr.prot::before{background:#5C5F70;opacity:.45}
+.fr .thumb{width:168px;height:94px}
+.fr .info{flex:1;min-width:0}
+.role{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:4px;font-family:var(--font-s);font-size:11px;font-weight:700;letter-spacing:.6px;color:#fff}
+.role svg{width:11px;height:11px;stroke-width:2.2}
+.role.keep{background:var(--ok)}.role.remove{background:var(--crit)}.role.prot{background:#5C5F70}
+.rl{display:flex;align-items:center;gap:8px}
+.rl .why{font-family:var(--font-s);font-size:12px;color:var(--t3)}
+.fr .line.l2{margin-top:2px}
+.fr .line .ok,.fr .line .dif{display:inline-flex;align-items:center;gap:3px}
+.fr .line .ok{color:var(--ok)}
+.fr .line .dif{color:var(--warn)}
+.fr .line .ok svg,.fr .line .dif svg{width:12px;height:12px;stroke-width:2.2}
+.fr .fn{font-size:14px;font-weight:600;margin-top:3px}
+.fr .path{font-family:var(--mono);font-size:11.5px;color:var(--t3);margin-top:1px}
+.fr .line{font-size:13px;color:var(--t2);margin-top:8px;font-variant-numeric:tabular-nums}
+.fr .line .diff,.fr .line.diff{color:var(--warn)}
+.fr .note{font-size:12px;line-height:16px;color:var(--t3);margin-top:6px;font-family:var(--font-s)}
+.fr .act{flex:none;display:flex;align-items:center;gap:8px;font-size:13px;padding-top:20px;width:150px}
+
+/* ================= DIALOG ================= */
+#dialog{display:none;position:absolute;inset:0;background:rgba(0,0,0,.30);align-items:center;justify-content:center;z-index:10}
+.dlg{width:500px;border-radius:8px;background:#FFFFFF;border:1px solid rgba(0,0,0,.0578);box-shadow:0 32px 64px rgba(0,0,0,.19),0 2px 21px rgba(0,0,0,.15);overflow:hidden}
+.dlg .c{padding:24px}
+.dlg h2{font-family:var(--font-d);font-size:20px;line-height:28px;font-weight:600}
+.dlg .lead{margin-top:8px;color:var(--t2)}
+.dl{margin-top:18px;display:grid;grid-template-columns:72px 1fr;row-gap:10px;font-size:14px}
+.dl .k{color:var(--t2)}
+.dl .v{font-variant-numeric:tabular-nums}
+.dl .v .mono{display:block;color:var(--t2);font-size:11.5px;margin-top:2px}
+.warnline{margin-top:20px;display:flex;gap:10px;padding:12px 14px;border-radius:4px;background:var(--warn-bg)}
+.warnline .ic{width:16px;height:16px;border-radius:50%;background:var(--warn);color:#fff;display:grid;place-items:center;flex:none;margin-top:2px}
+.warnline .ic svg{width:11px;height:11px;stroke-width:2.2}
+.warnline p{font-size:13px;line-height:19px}
+.dlg .f{display:flex;gap:8px;padding:24px;background:#F3F3F3;border-top:1px solid var(--stroke)}
+.dlg .f .btn{flex:1}
+
+/* ================= ACTIVITY ================= */
+.ac{flex:1;display:flex;min-height:0;border-top:1px solid var(--stroke)}
+.rec{flex:1;min-width:0;padding:16px 24px 0;overflow:hidden}
+.sechead{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+.sechead h3{font-size:16px;font-weight:600;font-family:var(--font-d)}
+.sechead .r{margin-left:auto;font-size:13px;color:var(--t2)}
+.sechead .r b{color:var(--t1);font-weight:600}
+.tr{display:grid;grid-template-columns:30px 1fr 104px 64px 76px;align-items:center;gap:12px;height:46px;padding:0 10px;border-bottom:1px solid var(--stroke);font-size:13px}
+.tr.h{height:34px;font-family:var(--font-s);font-size:12px;color:var(--t3)}
+.tr.on{background:var(--cfill)}
+.tr .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr .t .p{font-family:var(--mono);font-size:11px;color:var(--t3);line-height:14px}
+.tr .num{text-align:right;font-variant-numeric:tabular-nums}
+.log{width:300px;flex:none;border-left:1px solid var(--stroke);padding:16px 24px 0}
+.le{display:flex;gap:12px;padding:10px 0}
+.le + .le{border-top:1px solid var(--stroke)}
+.tr .when{color:var(--t2);font-family:var(--font-s);font-size:12px}
+.le .dot{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex:none}
+.le .dot svg{width:13px;height:13px;stroke-width:1.7}
+.le .dot.a{background:rgba(0,0,0,.06);color:var(--t1)}
+.le .dot.g{background:#DFF6DD;color:var(--ok)}
+.le .dot.n{background:rgba(0,0,0,.045);color:var(--t2)}
+.le .dot.w{background:#FFF4CE;color:var(--warn)}
+.le .tx{font-size:13px;line-height:18px}
+.le .t{font-family:var(--font-s);font-size:12px;color:var(--t3);margin-top:2px}
+/* light-theme specifics */
+.seg span.on{background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.0578),0 1px 2px rgba(0,0,0,.06)}
+.input{border-color:rgba(0,0,0,.0578);border-bottom-color:var(--strong)}
+.settings{border-color:rgba(0,0,0,.0578)}
+.thumb{filter:brightness(1.12)}
+.th-a2{filter:brightness(1.08) saturate(.8)}
+.tr.on{background:rgba(0,0,0,.0241)}
+.nav-item.sel{background:rgba(0,0,0,.0373)}
+</style>
+</head>
+<body data-screen="scan">
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="ag" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6A6FE0"/><stop offset="1" stop-color="#2E3192"/></linearGradient>
+    <linearGradient id="fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD978"/><stop offset="1" stop-color="#F2B33D"/></linearGradient>
+    <linearGradient id="fg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE9A8"/><stop offset="1" stop-color="#FBCB5A"/></linearGradient>
+  </defs>
+  <symbol id="app" viewBox="0 0 20 20">
+    <rect x="1.5" y="3.5" width="12" height="9" rx="2" fill="#B9BCF0"/>
+    <rect x="6.5" y="7.5" width="12" height="9" rx="2" fill="url(#ag)"/>
+    <path d="M11 10.3v3.4l3-1.7z" fill="#fff"/>
+  </symbol>
+  <symbol id="i-scan" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/></symbol>
+  <symbol id="i-review" viewBox="0 0 16 16"><rect x="1.5" y="4.5" width="9" height="9" rx="1.5"/><path d="M5.5 2.5h7a2 2 0 0 1 2 2v7"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 16 16"><path d="M2 8a6 6 0 1 0 1.8-4.3"/><path d="M2 2.5v2.8h2.8"/><path d="M8 5v3.2l2 1.3"/></symbol>
+  <symbol id="i-recovery" viewBox="0 0 16 16"><path d="M2.5 5.5h11v7.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/><rect x="1.5" y="2.5" width="13" height="3" rx="1"/><path d="M6.5 8.5h3"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7 3.4 3.4"/></symbol>
+  <symbol id="i-ham" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M13.5 8h-11M7 3.5 2.5 8 7 12.5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16"><path d="M1.5 4.5a1 1 0 0 1 1-1h3.6l1.5 1.5h5.9a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.5 6.5 12 13 4.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-neq" viewBox="0 0 16 16"><path d="M3.5 6h9M3.5 10h9M10 3 6 13"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.5 2.8 3.5v4c0 3.2 2.2 5.6 5.2 7 3-1.4 5.2-3.8 5.2-7v-4z"/><path d="M5.6 8.1 7.3 9.8l3.2-3.6"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><path d="M8 7v4.5"/><path d="M8 4.4v.2"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 16 16"><path d="M8 4v5"/><path d="M8 11.6v.2"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></symbol>
+  <symbol id="i-up" viewBox="0 0 16 16"><path d="M4 10l4-4 4 4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M12.5 1.8v2.8H9.7"/></symbol>
+  <symbol id="i-clear" viewBox="0 0 16 16"><path d="M2.5 4.5h11M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M4 4.5l.7 8.6a1 1 0 0 0 1 .9h4.6a1 1 0 0 0 1-.9l.7-8.6"/></symbol>
+  <symbol id="i-export" viewBox="0 0 16 16"><path d="M9.5 1.5h-5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-8z"/><path d="M9.5 1.5v4h3"/><path d="M6 9.5h4M6 11.5h2.5"/></symbol>
+  <symbol id="i-move" viewBox="0 0 16 16"><path d="M2.5 5.5h11v7.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/><rect x="1.5" y="2.5" width="13" height="3" rx="1"/><path d="M8 7.5v4.5M6 10l2 2 2-2"/></symbol>
+  <symbol id="i-restore" viewBox="0 0 16 16"><path d="M3 7.5a5 5 0 1 1 1.3 4"/><path d="M2.5 3.8v3.7h3.7"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 16 16"><path d="M2 3.5h12l-4.5 5.2v4.3l-3 1.5V8.7z"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 16 16"><path d="M4.5 2.5v11M2 11l2.5 2.5L7 11M11.5 13.5v-11M9 5l2.5-2.5L14 5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.4"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 16 16"><path d="M8 1.8 1.8 5 8 8.2 14.2 5z"/><path d="M1.8 8 8 11.2 14.2 8M1.8 11 8 14.2 14.2 11"/></symbol>
+  <symbol id="i-subf" viewBox="0 0 16 16"><path d="M2.5 2v9a1.5 1.5 0 0 0 1.5 1.5h2.5"/><path d="M2.5 5.5h4"/><rect x="7" y="3.5" width="7" height="4" rx="1"/><rect x="7" y="10.5" width="7" height="4" rx="1"/></symbol>
+  <symbol id="i-paste" viewBox="0 0 16 16"><rect x="3" y="2.5" width="10" height="12" rx="1.5"/><path d="M6 2.5V2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v.5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.5v9l7-4.5z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.5 4.5h11M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M4 4.5l.7 8.6a1 1 0 0 0 1 .9h4.6a1 1 0 0 0 1-.9l.7-8.6M6.7 7v4.5M9.3 7v4.5"/></symbol>
+  <symbol id="i-min" viewBox="0 0 10 10"><path d="M0 5h10"/></symbol>
+  <symbol id="i-max" viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" rx="1"/></symbol>
+  <symbol id="i-close" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10"/></symbol>
+  <symbol id="i-folder-big" viewBox="0 0 64 52">
+    <path d="M3 8a4 4 0 0 1 4-4h15l5 5h30a4 4 0 0 1 4 4v31a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z" fill="url(#fg)"/>
+    <rect x="12" y="13" width="36" height="22" rx="2.5" fill="#fff" stroke="#D9DAEA"/>
+    <rect x="15" y="16" width="30" height="16" rx="1.5" fill="url(#ag)"/>
+    <path d="M28 20.5v7l6-3.5z" fill="#fff"/>
+    <path d="M3 20a4 4 0 0 1 4-4h50a4 4 0 0 1 4 4v24a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z" fill="url(#fg2)"/>
+    <path d="M32 26v12M27 31l5-5 5 5" fill="none" stroke="#B07A12" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+</svg>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".6"/><circle cx="8" cy="8" r=".6"/><circle cx="12.5" cy="8" r=".6"/></symbol>
+  <symbol id="i-folder-line" viewBox="0 0 40 40"><path d="M5 11a2.5 2.5 0 0 1 2.5-2.5h8l3.5 3.5h13.5A2.5 2.5 0 0 1 35 14.5v15a2.5 2.5 0 0 1-2.5 2.5h-25A2.5 2.5 0 0 1 5 29.5z"/><path d="M20 27v-9M16 21.5l4-4 4 4"/></symbol>
+</svg>
+
+<!-- ===================== SCAN ===================== -->
+<div class="screen" id="scan"><div class="win">
+  <div class="titlebar"><div class="tb-back"><svg class="i"><use href="#i-back"/></svg></div><svg class="appicon"><use href="#app"/></svg><span class="tb-title">Duplicate Video Cleaner</span><div class="caption"><div><svg class="i"><use href="#i-min"/></svg></div><div><svg class="i"><use href="#i-max"/></svg></div><div><svg class="i"><use href="#i-close"/></svg></div></div></div>
+  <div class="body">
+    <nav class="nav">
+      <div class="nav-ham"><svg class="i"><use href="#i-ham"/></svg></div>
+      <div class="nav-item sel"><svg class="i"><use href="#i-scan"/></svg>Scan</div>
+      <div class="nav-item"><svg class="i"><use href="#i-review"/></svg>Review</div>
+      <div class="nav-item"><svg class="i"><use href="#i-activity"/></svg>Activity &amp; Recovery</div>
+      <div class="nav-foot"><div class="nav-item"><svg class="i"><use href="#i-gear"/></svg>About</div><div class="ver">Version 1.2.0</div></div>
+    </nav>
+    <main class="layer">
+      <div class="scan-col">
+        <div class="title">Scan for duplicates</div>
+        <div class="muted" style="margin-top:2px">Find recordings saved seconds apart and pick one to keep from each group.</div>
+
+        <div class="drop">
+          <svg class="i glyph"><use href="#i-folder-line"/></svg>
+          <h3>Drop a recordings folder here</h3>
+          <div class="muted" style="font-size:13px;margin-top:2px">OBS, ShadowPlay, Xbox Game Bar and phone clips (.mp4, .mkv)</div>
+          <div class="drop-row">
+            <div class="input ph only-empty">Paste a path or pick a recent folder<svg class="i chev"><use href="#i-chev"/></svg></div>
+            <div class="btn focus only-empty">Browse…</div>
+            <div class="input only-busy"><span class="mono" style="font-size:13px">D:\Recordings\OBS</span><svg class="i chev"><use href="#i-chev"/></svg></div>
+            <div class="btn only-busy">Browse…</div>
+          </div>
+        </div>
+
+        <div class="settings">
+          <div class="srow"><div class="tx"><div>Time window</div><div class="d">Recordings that start within this many seconds of a neighbour are grouped</div></div>
+            <div class="numbox"><div class="input"><span>60</span><span class="spin"><svg class="i"><use href="#i-up"/></svg><svg class="i"><use href="#i-chev"/></svg></span></div><span class="muted" style="font-size:13px">seconds</span></div></div>
+          <div class="srow"><div class="tx"><div>Keep in each group</div><div class="d">The suggested keeper in each group</div></div>
+            <div class="seg"><span class="on">Oldest</span><span>Newest</span></div></div>
+          <div class="srow"><div class="tx"><div>Include subfolders</div><div class="d">Also scan folders inside the selected folder</div></div>
+            <span class="toggle">On<i></i></span></div>
+          <div class="srow"><div class="tx"><div>Protect clips without a date in the name</div><div class="d">A renamed clip such as “clutch ace final round.mp4” is usually one you meant to keep. It still shows in its group, but can’t be ticked for removal.</div></div>
+            <span class="toggle">On<i></i></span></div>
+        </div>
+
+        <div class="scan-foot only-empty">
+          <div class="row"><div class="btn accent lg disabled">Scan videos</div><span class="muted" style="font-size:13px">Choose a folder to begin.</span></div>
+          <div class="note small faint">Scanning only reads file names and metadata. Nothing is moved until you confirm.</div>
+        </div>
+        <div class="scan-foot only-busy">
+          <div class="row">
+            <div style="flex:1">
+              <div style="display:flex;font-size:13px"><span>Scanning… <span class="muted">reading metadata</span></span><span class="muted" style="margin-left:auto;font-variant-numeric:tabular-nums">812 of 1,240 files</span></div>
+              <div class="pbar"><i style="width:65%"></i></div>
+              <div class="small faint mono" style="font-size:11px">OBS\2026-10\2026-10-15 14-30-04.mp4</div>
+            </div>
+            <div class="btn focus">Cancel scan</div>
+          </div>
+          <div class="note small faint">Scanning only reads file names and metadata. Nothing is moved until you confirm.</div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div></div>
+
+<!-- ===================== REVIEW ===================== -->
+<div class="screen" id="review"><div class="win">
+  <div class="titlebar"><div class="tb-back"><svg class="i"><use href="#i-back"/></svg></div><svg class="appicon"><use href="#app"/></svg><span class="tb-title">Duplicate Video Cleaner</span><div class="caption"><div><svg class="i"><use href="#i-min"/></svg></div><div><svg class="i"><use href="#i-max"/></svg></div><div><svg class="i"><use href="#i-close"/></svg></div></div></div>
+  <div class="body">
+    <nav class="nav">
+      <div class="nav-ham"><svg class="i"><use href="#i-ham"/></svg></div>
+      <div class="nav-item"><svg class="i"><use href="#i-scan"/></svg>Scan</div>
+      <div class="nav-item sel"><svg class="i"><use href="#i-review"/></svg>Review<span class="count">14</span></div>
+      <div class="nav-item"><svg class="i"><use href="#i-activity"/></svg>Activity &amp; Recovery</div>
+      <div class="nav-foot"><div class="nav-item"><svg class="i"><use href="#i-gear"/></svg>About</div><div class="ver">Version 1.2.0</div></div>
+    </nav>
+    <main class="layer">
+      <div class="rv-head">
+        <div>
+          <div class="title">Review</div>
+          <div class="sub">14 groups · 41 files in <span class="mono">D:\Recordings\OBS</span> · 60 s window · keep oldest · subfolders included</div>
+        </div>
+        <div class="rv-actions">
+          <div class="seg"><span class="on">Suggested</span><span>All</span><span>None</span></div>
+          <div class="btn"><svg class="i"><use href="#i-refresh"/></svg>Rescan</div>
+          <div class="btn icon"><svg class="i" style="stroke-width:2.2"><use href="#i-more"/></svg></div>
+        </div>
+      </div>
+
+      <div class="md">
+        <div class="master">
+          <div class="gi"><div class="m"><div class="n">Group 1 <span class="d">· Oct 15 21:04</span></div><div class="s">4 files · 3 selected<span class="chip high">High</span></div></div><span class="sz">5.12 GB</span></div>
+          <div class="gi sel"><div class="m"><div class="n">Group 2 <span class="d">· Oct 15 14:30</span></div><div class="s">3 files · 1 selected<span class="chip high">High</span></div></div><span class="sz">2.41 GB</span></div>
+          <div class="gi"><div class="m"><div class="n">Group 3 <span class="d">· Oct 14 19:12</span></div><div class="s">3 files · 2 selected<span class="chip high">High</span></div></div><span class="sz">1.96 GB</span></div>
+          <div class="gi"><div class="m"><div class="n">Group 4 <span class="d">· Oct 12 22:41</span></div><div class="s">2 files · 1 selected<span class="chip med">Medium</span></div></div><span class="sz">1.48 GB</span></div>
+          <div class="gi"><div class="m"><div class="n">Group 5 <span class="d">· Oct 11 17:55</span></div><div class="s">3 files · 2 selected<span class="chip high">High</span></div></div><span class="sz">1.31 GB</span></div>
+          <div class="gi"><div class="m"><div class="n">Group 6 <span class="d">· Oct 10 20:02</span></div><div class="s"><span class="w">All 2 files selected</span><span class="chip low">Low</span></div></div><span class="sz">1.12 GB</span></div>
+          <div class="gi"><div class="m"><div class="n">Group 7 <span class="d">· Oct 9 23:18</span></div><div class="s">2 files<span class="chip none">No removal suggested</span></div></div><span class="sz z">—</span></div>
+          <div class="gi"><div class="m"><div class="n">Group 8 <span class="d">· Oct 8 16:20</span></div><div class="s">2 files · 1 selected<span class="chip med">Medium</span></div></div><span class="sz">0.94 GB</span></div>
+          <div class="gi"><div class="m"><div class="n">Group 9 <span class="d">· Oct 7 20:45</span></div><div class="s">3 files · 2 selected<span class="chip high">High</span></div></div><span class="sz">0.88 GB</span></div>
+          <div class="gi"><div class="m"><div class="n">Group 10 <span class="d">· Oct 6 18:03</span></div><div class="s">2 files · 1 selected<span class="chip high">High</span></div></div><span class="sz">0.71 GB</span></div>
+        </div>
+
+        <section class="detail">
+          <div style="display:flex;align-items:center;gap:12px"><span class="subtitle">Group 2</span><span class="chip high lg">High confidence</span></div>
+          <div class="meta">Oct 15, 2026 · 14:30:00 – 14:30:41 · 3 files · duration, resolution and exact size match</div>
+          <div class="files">
+            <div class="fr keep">
+              <div class="thumb th-a"><span class="dur">0:12:41</span></div>
+              <div class="info">
+                <div class="rl"><span class="role keep"><svg class="i"><use href="#i-check"/></svg>KEEP</span><span class="why">oldest in group · reference</span></div>
+                <div class="fn">2026-10-15 14-30-00.mp4</div>
+                <div class="path">OBS\2026-10\</div>
+                <div class="line">14:30:00 · time from file name</div><div class="line l2">2560×1440 · 0:12:41 · 2.41 GB</div>
+              </div>
+              <div class="act"></div>
+            </div>
+            <div class="fr remove">
+              <div class="thumb th-a"><span class="dur">0:12:41</span></div>
+              <div class="info">
+                <div class="rl"><span class="role remove"><svg class="i"><use href="#i-x"/></svg>REMOVE</span><span class="why">+4 s after keeper</span></div>
+                <div class="fn">2026-10-15 14-30-04.mp4</div>
+                <div class="path">OBS\2026-10\Remux\</div>
+                <div class="line">14:30:04 · time from file name</div><div class="line l2"><span class="ok"><svg class="i"><use href="#i-check"/></svg>2560×1440</span> · <span class="ok"><svg class="i"><use href="#i-check"/></svg>0:12:41</span> · <span class="ok"><svg class="i"><use href="#i-check"/></svg>2.41 GB exact size</span></div>
+              </div>
+              <div class="act"><span class="cb on"><svg class="i"><use href="#i-check"/></svg></span>Remove this file</div>
+            </div>
+            <div class="fr prot">
+              <div class="thumb th-a th-a2"><span class="dur">0:12:41</span></div>
+              <div class="info">
+                <div class="rl"><span class="role prot"><svg class="i"><use href="#i-lock"/></svg>PROTECTED</span><span class="why">+41 s after keeper</span></div>
+                <div class="fn">clutch ace final round.mp4</div>
+                <div class="path">Favourites\</div>
+                <div class="line">14:30:41 · time from modified date</div><div class="line l2"><span class="ok"><svg class="i"><use href="#i-check"/></svg>2560×1440</span> · <span class="ok"><svg class="i"><use href="#i-check"/></svg>0:12:41</span> · <span class="dif"><svg class="i"><use href="#i-neq"/></svg>1.87 GB different size</span></div>
+                <div class="note">Protected because the name has no date. Matches the keeper on duration and resolution (Medium).</div>
+              </div>
+              <div class="act"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="cmdbar">
+        <div><div class="big">23 files · 18.4 GB</div><div class="small faint">selected across 11 groups</div></div>
+        <div class="right">
+          <span class="muted" style="font-size:13px">Removal method</span>
+          <div class="combo" style="min-width:190px">Recovery (undoable)<svg class="i" style="margin-left:auto"><use href="#i-chev"/></svg></div>
+          <div class="btn">Export dry run…</div>
+          <div class="btn accent lg">Move selected…</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="dialog">
+    <div class="dlg">
+      <div class="c">
+        <h2>Move 23 files to Recovery?</h2>
+        <div class="lead">They’ll be moved, not deleted. You can restore them from Activity &amp; Recovery.</div>
+        <div class="dl">
+          <span class="k">Files</span><span class="v">23 files from 11 groups</span>
+          <span class="k">Size</span><span class="v">18.4 GB</span>
+          <span class="k">Method</span><span class="v">Recovery, same-volume move<span class="mono">D:\Recordings\.DuplicateVideoCleaner-Recovery</span></span>
+        </div>
+        <div class="warnline"><span class="ic"><svg class="i"><use href="#i-warn"/></svg></span><p>In Group 6 every original in the time window is selected, so no copy of that recording will stay in place.</p></div>
+      </div>
+      <div class="f">
+        <div class="btn danger">Confirm move</div>
+        <div class="btn accent focus">Cancel</div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<!-- ===================== ACTIVITY ===================== -->
+<div class="screen" id="activity"><div class="win">
+  <div class="titlebar"><div class="tb-back"><svg class="i"><use href="#i-back"/></svg></div><svg class="appicon"><use href="#app"/></svg><span class="tb-title">Duplicate Video Cleaner</span><div class="caption"><div><svg class="i"><use href="#i-min"/></svg></div><div><svg class="i"><use href="#i-max"/></svg></div><div><svg class="i"><use href="#i-close"/></svg></div></div></div>
+  <div class="body">
+    <nav class="nav">
+      <div class="nav-ham"><svg class="i"><use href="#i-ham"/></svg></div>
+      <div class="nav-item"><svg class="i"><use href="#i-scan"/></svg>Scan</div>
+      <div class="nav-item"><svg class="i"><use href="#i-review"/></svg>Review<span class="count">14</span></div>
+      <div class="nav-item sel"><svg class="i"><use href="#i-activity"/></svg>Activity &amp; Recovery</div>
+      <div class="nav-foot"><div class="nav-item"><svg class="i"><use href="#i-gear"/></svg>About</div><div class="ver">Version 1.2.0</div></div>
+    </nav>
+    <main class="layer">
+      <div class="rv-head">
+        <div>
+          <div class="title">Activity &amp; Recovery</div>
+          <div class="sub">25 files · 19.5 GB in <span class="mono">D:\Recordings\.DuplicateVideoCleaner-Recovery</span></div>
+        </div>
+      </div>
+      <div class="ac">
+        <div class="rec">
+          <div class="sechead"><h3>Recovery</h3><span class="r"><b>3</b> selected · <b>4.07 GB</b></span></div>
+          <div class="tr h"><span class="cb mixed"></span><span>Name</span><span>Moved</span><span>Duration</span><span class="num">Size</span></div>
+          <div class="tr on"><span class="cb on"><svg class="i"><use href="#i-check"/></svg></span><div class="t"><div>2026-10-15 14-30-04.mp4</div><div class="p">OBS\2026-10\Remux\</div></div><span class="when">Today, 10:42</span><span>0:12:41</span><span class="num">2.41 GB</span></div>
+          <div class="tr on"><span class="cb on"><svg class="i"><use href="#i-check"/></svg></span><div class="t"><div>Desktop 2026.10.15 - 21.04.12.02.mp4</div><div class="p">NVIDIA\Desktop\</div></div><span class="when">Today, 10:42</span><span>0:08:03</span><span class="num">1.04 GB</span></div>
+          <div class="tr on"><span class="cb on"><svg class="i"><use href="#i-check"/></svg></span><div class="t"><div>VID_20261011_175533.mp4</div><div class="p">Phone\Camera\</div></div><span class="when">Today, 10:42</span><span>0:01:58</span><span class="num">612 MB</span></div>
+          <div class="tr"><span class="cb"></span><div class="t"><div>Desktop 2026.10.15 - 21.04.18.03.mp4</div><div class="p">NVIDIA\Desktop\</div></div><span class="when">Today, 10:42</span><span>0:08:03</span><span class="num">1.04 GB</span></div>
+          <div class="tr"><span class="cb"></span><div class="t"><div>2026-10-14 19-12-51.mkv</div><div class="p">OBS\2026-10\</div></div><span class="when">Today, 10:42</span><span>0:21:37</span><span class="num">980 MB</span></div>
+          <div class="tr"><span class="cb"></span><div class="t"><div>2026-10-14 19-13-20.mkv</div><div class="p">OBS\2026-10\</div></div><span class="when">Today, 10:42</span><span>0:21:09</span><span class="num">962 MB</span></div>
+          <div class="tr"><span class="cb"></span><div class="t"><div>2026-10-12 22-41-09.mp4</div><div class="p">OBS\2026-10\</div></div><span class="when">Today, 10:42</span><span>0:05:12</span><span class="num">1.48 GB</span></div>
+          <div class="tr"><span class="cb"></span><div class="t"><div>VID_20261011_175540.mp4</div><div class="p">Phone\Camera\</div></div><span class="when">Today, 10:42</span><span>0:01:51</span><span class="num">574 MB</span></div>
+          <div class="tr"><span class="cb"></span><div class="t"><div>2026-09-28 21-15-02.mp4</div><div class="p">OBS\2026-09\</div></div><span class="when">Oct 18, 22:47</span><span>0:09:44</span><span class="num">560 MB</span></div>
+          <div class="tr" style="border-bottom:0"><span class="cb"></span><div class="t"><div>VID_20260927_181204.mp4</div><div class="p">Phone\Camera\</div></div><span class="when">Oct 18, 22:47</span><span>0:03:12</span><span class="num">545 MB</span></div>
+        </div>
+        <aside class="log">
+          <div class="sechead"><h3>Activity</h3></div>
+          <div class="le"><span class="dot a"><svg class="i"><use href="#i-move"/></svg></span><div class="tx">Moved 23 files · 18.4 GB to Recovery<div class="t">Today, 10:42 · 11 groups</div></div></div>
+          <div class="le"><span class="dot n"><svg class="i"><use href="#i-export"/></svg></span><div class="tx">Exported dry run dvc-dryrun-1042.csv<div class="t">Today, 10:39</div></div></div>
+          <div class="le"><span class="dot n"><svg class="i"><use href="#i-scan"/></svg></span><div class="tx">Scanned D:\Recordings\OBS: 14 groups, 41 files<div class="t">Today, 10:31 · 60 s · keep oldest</div></div></div>
+          <div class="le"><span class="dot g"><svg class="i"><use href="#i-restore"/></svg></span><div class="tx">Restored 2026-10-08 16-20-03.mp4<div class="t">Oct 21, 18:20</div></div></div>
+          <div class="le"><span class="dot w"><svg class="i"><use href="#i-trash"/></svg></span><div class="tx">Permanently deleted 4 files · 3.1 GB<div class="t">Oct 19, 09:02</div></div></div>
+          <div class="le"><span class="dot a"><svg class="i"><use href="#i-move"/></svg></span><div class="tx">Moved 2 files · 1.1 GB to Recovery<div class="t">Oct 18, 22:47 · 1 group</div></div></div>
+        </aside>
+      </div>
+      <div class="cmdbar">
+        <div class="btn"><span class="cb mixed" style="width:16px;height:16px"></span>Select all</div>
+        <div class="right">
+          <div class="btn danger">Permanently delete selected…</div>
+          <div class="btn accent lg">Restore selected</div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div></div>
+
+<script>document.body.setAttribute("data-screen",(location.hash||"#scan").slice(1));</script>
+</body>
+</html>

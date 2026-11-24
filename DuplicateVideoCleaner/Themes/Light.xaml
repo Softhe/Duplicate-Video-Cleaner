@@ -1,0 +1,59 @@
+<!-- Generated from docs/redesign/mockups/NOTES.md tokens. Keep keys identical in Dark.xaml and Light.xaml. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Surfaces -->
+  <Color x:Key="CaptionColor">#FFF3F3F3</Color>
+  <SolidColorBrush x:Key="BaseBrush" Color="#FFF3F3F3" />
+  <SolidColorBrush x:Key="ContentBrush" Color="#FFF9F9F9" />
+  <SolidColorBrush x:Key="CardBrush" Color="#B3FFFFFF" />
+  <SolidColorBrush x:Key="CardStrokeBrush" Color="#0F000000" />
+  <SolidColorBrush x:Key="DividerBrush" Color="#14000000" />
+  <SolidColorBrush x:Key="ThumbnailBrush" Color="#FFDCDCDC" />
+  <!-- Controls -->
+  <SolidColorBrush x:Key="ControlFillBrush" Color="#B3FFFFFF" />
+  <SolidColorBrush x:Key="ControlFillHoverBrush" Color="#80F9F9F9" />
+  <SolidColorBrush x:Key="ControlFillPressedBrush" Color="#4DF9F9F9" />
+  <SolidColorBrush x:Key="ControlFillDisabledBrush" Color="#4DF9F9F9" />
+  <SolidColorBrush x:Key="ControlStrokeBrush" Color="#0F000000" />
+  <SolidColorBrush x:Key="ControlStrokeBottomBrush" Color="#29000000" />
+  <SolidColorBrush x:Key="StrongStrokeBrush" Color="#72000000" />
+  <SolidColorBrush x:Key="InputFillBrush" Color="#B3FFFFFF" />
+  <SolidColorBrush x:Key="InputFillFocusedBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="SubtleFillSelectedBrush" Color="#0A000000" />
+  <SolidColorBrush x:Key="SubtleFillHoverBrush" Color="#06000000" />
+  <SolidColorBrush x:Key="FlyoutBrush" Color="#FFFCFCFC" />
+  <SolidColorBrush x:Key="FlyoutStrokeBrush" Color="#0F000000" />
+  <!-- Text -->
+  <SolidColorBrush x:Key="TextPrimaryBrush" Color="#E4000000" />
+  <SolidColorBrush x:Key="TextSecondaryBrush" Color="#9B000000" />
+  <SolidColorBrush x:Key="TextTertiaryBrush" Color="#8F000000" />
+  <SolidColorBrush x:Key="TextDisabledBrush" Color="#5C000000" />
+  <!-- Accent -->
+  <SolidColorBrush x:Key="AccentBrush" Color="#FF3F44B0" />
+  <SolidColorBrush x:Key="AccentHoverBrush" Color="#E63F44B0" />
+  <SolidColorBrush x:Key="AccentPressedBrush" Color="#CC3F44B0" />
+  <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="AccentDisabledBrush" Color="#37000000" />
+  <SolidColorBrush x:Key="OnAccentDisabledBrush" Color="#FFFFFFFF" />
+  <!-- Semantic -->
+  <SolidColorBrush x:Key="SuccessBrush" Color="#FF0F7B0F" />
+  <SolidColorBrush x:Key="SuccessTintBrush" Color="#FFDFF6DD" />
+  <SolidColorBrush x:Key="CautionBrush" Color="#FF9D5D00" />
+  <SolidColorBrush x:Key="CautionTintBrush" Color="#FFFFF4CE" />
+  <SolidColorBrush x:Key="CriticalBrush" Color="#FFC42B1C" />
+  <SolidColorBrush x:Key="CriticalTintBrush" Color="#FFFDE7E9" />
+  <SolidColorBrush x:Key="NeutralBrush" Color="#FF5C5F70" />
+  <SolidColorBrush x:Key="NeutralTintBrush" Color="#06000000" />
+  <SolidColorBrush x:Key="OnBadgeBrush" Color="#FFFFFFFF" />
+  <!-- Rows -->
+  <SolidColorBrush x:Key="KeepRowTintBrush" Color="#0D0F7B0F" />
+  <SolidColorBrush x:Key="RemoveRowTintBrush" Color="#0DC42B1C" />
+  <SolidColorBrush x:Key="ProtectedEdgeBrush" Color="#735C5F70" />
+  <!-- Dialog -->
+  <SolidColorBrush x:Key="SmokeBrush" Color="#4D000000" />
+  <SolidColorBrush x:Key="DialogSurfaceBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="DialogCommandBrush" Color="#FFF3F3F3" />
+  <SolidColorBrush x:Key="DialogStrokeBrush" Color="#0F000000" />
+  <!-- Focus -->
+  <SolidColorBrush x:Key="FocusOuterBrush" Color="#E4000000" />
+  <SolidColorBrush x:Key="FocusInnerBrush" Color="#FFFFFFFF" />
+</ResourceDictionary>

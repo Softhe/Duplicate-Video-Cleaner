@@ -51,6 +51,7 @@ internal static class MetadataRegressionTests
         }
         if (args.Length > 0 && args[0] == "--sandbox-child") { Console.WriteLine("Unexpected child executed."); exitCode = 99; return true; }
         if (args.Length == 0 || args[0] != "-v") return false;
+        if (args.Contains("rawvideo")) { exitCode = RunThumbnailFixture(args); return true; }
         // The production probe passes media only as a read-only standard-input handle.
         if (args[^1] != "fd:" || args[^2] != "-i" ||
             !args.Contains("-protocol_whitelist") || args[Array.IndexOf(args, "-protocol_whitelist") + 1] != "fd")
@@ -68,6 +69,28 @@ internal static class MetadataRegressionTests
         if (media.StartsWith("wait")) Thread.Sleep(30000);
         Console.WriteLine("{\"streams\":[{\"width\":1920,\"height\":1080}],\"format\":{\"duration\":\"12.5\"}}");
         return true;
+    }
+
+    // Stands in for ffmpeg: media is only the read-only standard-input handle, and the frame
+    // goes to stdout. "short", "flood" and "wait" media exercise the extractor's limits.
+    private static int RunThumbnailFixture(string[] args)
+    {
+        var input = Array.IndexOf(args, "-i");
+        if (input < 0 || args[input + 1] != "fd:" || args[^1] != "pipe:1" ||
+            !args.Contains("-protocol_whitelist") || args[Array.IndexOf(args, "-protocol_whitelist") + 1] != "fd")
+        {
+            Console.Error.WriteLine("Unsafe thumbnail arguments.");
+            return 1;
+        }
+        var media = ReadStandardInput();
+        using var output = Console.OpenStandardOutput();
+        if (media.StartsWith("wait")) Thread.Sleep(30000);
+        if (media.StartsWith("short")) { output.Write(new byte[1000]); return 0; }
+        var frame = new byte[ThumbnailExtractor.FrameBytes];
+        Array.Fill(frame, (byte)0x7F);
+        output.Write(frame);
+        if (media.StartsWith("flood")) while (true) output.Write(frame);
+        return 0;
     }
 
     private static string ReadStandardInput()

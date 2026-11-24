@@ -39,19 +39,17 @@ public sealed class InstalledVideoWorkflowTests
             using var automation = new UIA3Automation();
             var window = application.GetMainWindow(automation, TimeSpan.FromSeconds(15)) ?? throw new AssertFailedException("Candidate window did not appear.");
             AutomationElement Find(string name) => window.FindFirstDescendant(cf => cf.ByName(name)) ?? throw new AssertFailedException($"Missing control: {name}");
-            Find("Video folder").AsTextBox().Text = root;
+            Find("Video folder").Patterns.Value.Pattern.SetValue(root);
             Find("Scan videos").AsButton().Invoke();
-            var expand = Retry.WhileNull(() => window.FindFirstDescendant(cf => cf.ByName("Expand group 1")), TimeSpan.FromSeconds(45)).Result;
-            Assert.IsNotNull(expand, "Candidate did not produce a review group with native probing enabled.");
-            expand.AsButton().Invoke();
-            var metadata = window.FindAllDescendants().Where(element => element.Name?.StartsWith("Effective timestamp:", StringComparison.Ordinal) == true).ToArray();
+            var group = Retry.WhileNull(() => window.FindFirstDescendant(cf => cf.ByName("Duplicate group 1")), TimeSpan.FromSeconds(45)).Result;
+            Assert.IsNotNull(group, "Candidate did not produce a review group with native probing enabled.");
+            Assert.IsNotNull(window.FindFirstDescendant(cf => cf.ByName("Confidence: High confidence")), "Matching files must be High confidence.");
+            // One file row (list item) per video; attribute text inside a row carries its own name.
+            var metadata = Retry.WhileEmpty(() => window.FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem))
+                    .Where(element => element.Name?.Contains("Duration 00:00:01.000", StringComparison.Ordinal) == true).ToArray(),
+                TimeSpan.FromSeconds(10)).Result!;
             Assert.AreEqual(2, metadata.Length);
-            foreach (var row in metadata)
-            {
-                StringAssert.Contains(row.Name, "Duration: 00:00:01.000");
-                StringAssert.Contains(row.Name, "Resolution: 64×48");
-                StringAssert.Contains(row.Name, "Confidence: High");
-            }
+            foreach (var row in metadata) StringAssert.Contains(row.Name!, "Resolution 64×48");
 
             // Exercise the actual export action and standard Windows folder picker.
             Find("Export dry run").AsButton().Click();

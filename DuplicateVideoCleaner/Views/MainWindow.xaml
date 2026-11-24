@@ -1,0 +1,269 @@
+<Window x:Class="DuplicateVideoCleaner.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:DuplicateVideoCleaner.Views"
+        Title="Duplicate Video Cleaner"
+        Width="1240" Height="790" MinWidth="980" MinHeight="640" WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource BaseBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+        FontFamily="{StaticResource UiFont}" FontSize="14"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
+        AutomationProperties.Name="Duplicate Video Cleaner">
+  <Window.Resources>
+    <views:VisibleWhenConverter x:Key="Visible" />
+    <views:VisibleWhenConverter x:Key="Hidden" Invert="True" />
+    <views:NotConverter x:Key="Not" />
+    <views:EnumIsConverter x:Key="EnumIs" />
+
+    <!-- Navigation item: Tag = True when it is the current page -->
+    <Style TargetType="Button" x:Key="NavButton" BasedOn="{StaticResource SubtleButton}">
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Padding" Value="12,0" />
+      <Setter Property="Height" Value="38" />
+      <Setter Property="Margin" Value="0,1" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Chrome" Background="Transparent" CornerRadius="{StaticResource ControlCorner}">
+              <Grid>
+                <Border x:Name="Indicator" Width="3" Height="16" CornerRadius="1.5" HorizontalAlignment="Left"
+                        Background="{DynamicResource AccentBrush}" Visibility="Collapsed" />
+                <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SubtleFillHoverBrush}" />
+              </Trigger>
+              <Trigger Property="Tag" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SubtleFillSelectedBrush}" />
+                <Setter TargetName="Indicator" Property="Visibility" Value="Visible" />
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <Window.InputBindings>
+    <KeyBinding Modifiers="Control" Key="D1" Command="{Binding NavigateCommand}" CommandParameter="Scan" />
+    <KeyBinding Modifiers="Control" Key="D2" Command="{Binding NavigateCommand}" CommandParameter="Review" />
+    <KeyBinding Modifiers="Control" Key="D3" Command="{Binding NavigateCommand}" CommandParameter="Activity" />
+  </Window.InputBindings>
+
+  <Grid>
+    <Grid x:Name="Shell" IsEnabled="{Binding HasDialog, Converter={StaticResource Not}}">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="248" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+
+      <!-- Navigation pane -->
+      <DockPanel Margin="6,8,6,10" AutomationProperties.Name="Navigation">
+        <StackPanel DockPanel.Dock="Bottom">
+          <ToggleButton x:Name="SettingsToggle" Focusable="True" FocusVisualStyle="{StaticResource FocusVisual}" Height="38" Padding="12,0"
+                        AutomationProperties.Name="Settings and about" ToolTip="Theme and version">
+            <ToggleButton.Template>
+              <ControlTemplate TargetType="ToggleButton">
+                <Border x:Name="Chrome" Background="Transparent" CornerRadius="{StaticResource ControlCorner}">
+                  <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center" />
+                </Border>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SubtleFillHoverBrush}" />
+                  </Trigger>
+                  <Trigger Property="IsChecked" Value="True">
+                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SubtleFillSelectedBrush}" />
+                  </Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </ToggleButton.Template>
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource IconText}" Text="&#xE713;" Foreground="{DynamicResource TextPrimaryBrush}" />
+              <TextBlock Text="Settings" Margin="14,0,0,0" Foreground="{DynamicResource TextPrimaryBrush}" />
+            </StackPanel>
+          </ToggleButton>
+          <Popup IsOpen="{Binding IsChecked, ElementName=SettingsToggle}" StaysOpen="False" PlacementTarget="{Binding ElementName=SettingsToggle}"
+                 Placement="Top" VerticalOffset="-6" AllowsTransparency="True" PopupAnimation="Fade"
+                 >
+            <Border Background="{DynamicResource FlyoutBrush}" BorderBrush="{DynamicResource FlyoutStrokeBrush}" BorderThickness="1"
+                    CornerRadius="{StaticResource OverlayCorner}" Padding="16" Margin="0,8,8,8" Width="300"
+                    TextElement.Foreground="{DynamicResource TextPrimaryBrush}">
+              <Border.Effect>
+                <DropShadowEffect BlurRadius="16" ShadowDepth="4" Direction="270" Opacity="0.28" />
+              </Border.Effect>
+              <StackPanel>
+                <TextBlock Text="Theme" Style="{StaticResource BodyStrongText}" />
+                <Border Style="{StaticResource SegmentContainer}" Margin="0,8,0,0" HorizontalAlignment="Left">
+                  <StackPanel Orientation="Horizontal">
+                    <RadioButton Style="{StaticResource SegmentRadio}" GroupName="Theme" Content="Dark"
+                                 IsChecked="{Binding Theme, Converter={StaticResource EnumIs}, ConverterParameter=Dark}" AutomationProperties.Name="Dark theme" />
+                    <RadioButton Style="{StaticResource SegmentRadio}" GroupName="Theme" Content="Light"
+                                 IsChecked="{Binding Theme, Converter={StaticResource EnumIs}, ConverterParameter=Light}" AutomationProperties.Name="Light theme" />
+                    <RadioButton Style="{StaticResource SegmentRadio}" GroupName="Theme" Content="System"
+                                 IsChecked="{Binding Theme, Converter={StaticResource EnumIs}, ConverterParameter=System}" AutomationProperties.Name="Use the Windows theme" />
+                  </StackPanel>
+                </Border>
+                <TextBlock Style="{StaticResource CaptionText}" Margin="0,6,0,0" TextWrapping="Wrap"
+                           Text="System follows the Windows app mode." />
+                <Border Style="{StaticResource Divider}" Margin="0,14" />
+                <DockPanel>
+                  <CheckBox DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding ShowThumbnails}" VerticalAlignment="Top"
+                            AutomationProperties.Name="Show video thumbnails" />
+                  <StackPanel Margin="0,0,12,0">
+                    <TextBlock Text="Video thumbnails" Style="{StaticResource BodyStrongText}" />
+                    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Text="One frame per file, read by the isolated parser and cached in your user profile." />
+                  </StackPanel>
+                </DockPanel>
+                <Border Style="{StaticResource Divider}" Margin="0,14" />
+                <TextBlock Text="Duplicate Video Cleaner" Style="{StaticResource BodyStrongText}" />
+                <TextBlock Style="{StaticResource CaptionText}" Margin="0,2,0,0" Text="{Binding Version, StringFormat=Version {0}}" />
+                <TextBlock Style="{StaticResource CaptionText}" Margin="0,6,0,0" TextWrapping="Wrap"
+                           Text="Groups videos recorded close together. It does not compare video content, so review every selection before removing it." />
+              </StackPanel>
+            </Border>
+          </Popup>
+          <TextBlock Style="{StaticResource TertiaryCaptionText}" Margin="12,10,0,0" Text="{Binding Version, StringFormat=Version {0}}"
+                     AutomationProperties.Name="{Binding Version, StringFormat=Version {0}}" />
+        </StackPanel>
+
+        <StackPanel Margin="0,4,0,0">
+          <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Scan" Tag="{Binding IsScanPage}"
+                  AutomationProperties.Name="Scan workspace, Control 1" ToolTip="Scan (Ctrl+1)">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource IconText}" Text="&#xE721;" />
+              <TextBlock Text="Scan" Margin="14,0,0,0" />
+            </StackPanel>
+          </Button>
+          <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Review" Tag="{Binding IsReviewPage}"
+                  AutomationProperties.Name="Review workspace, Control 2" ToolTip="Review (Ctrl+2)">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Right" Text="{Binding ReviewCount}" Style="{StaticResource TertiaryCaptionText}" VerticalAlignment="Center" />
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource IconText}" Text="&#xE8C8;" />
+                <TextBlock Text="Review" Margin="14,0,0,0" />
+              </StackPanel>
+            </DockPanel>
+          </Button>
+          <Button Style="{StaticResource NavButton}" Command="{Binding NavigateCommand}" CommandParameter="Activity" Tag="{Binding IsActivityPage}"
+                  AutomationProperties.Name="Activity workspace, Control 3" ToolTip="Activity and Recovery (Ctrl+3)">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource IconText}" Text="&#xE81C;" />
+              <TextBlock Text="Activity &amp; Recovery" Margin="14,0,0,0" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+      </DockPanel>
+
+      <!-- Content layer -->
+      <Border Grid.Column="1" Background="{DynamicResource ContentBrush}" BorderBrush="{DynamicResource CardStrokeBrush}"
+              BorderThickness="1,1,0,0" CornerRadius="8,0,0,0">
+        <Grid>
+          <views:ScanPage DataContext="{Binding Scan}" Visibility="{Binding DataContext.IsScanPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
+          <views:ReviewPage DataContext="{Binding Review}" Visibility="{Binding DataContext.IsReviewPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
+          <views:ActivityPage DataContext="{Binding ActivityPage}" Visibility="{Binding DataContext.IsActivityPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- Content dialog over a smoke layer. Cancel/Close is the default and focused button. -->
+    <Grid Visibility="{Binding DataContext.HasDialog, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" DataContext="{Binding Dialog}"
+          KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.ControlTabNavigation="Cycle">
+      <Rectangle Fill="{DynamicResource SmokeBrush}" />
+      <Border Width="560" MaxHeight="{Binding ActualHeight, RelativeSource={RelativeSource AncestorType=Window}}" VerticalAlignment="Center" HorizontalAlignment="Center"
+              Margin="24" Background="{DynamicResource DialogSurfaceBrush}" BorderBrush="{DynamicResource DialogStrokeBrush}" BorderThickness="1"
+              CornerRadius="{StaticResource OverlayCorner}" AutomationProperties.Name="{Binding Title}">
+        <Border.Effect>
+          <DropShadowEffect BlurRadius="48" ShadowDepth="16" Direction="270" Opacity="0.35" />
+        </Border.Effect>
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+            <StackPanel Margin="24,22,24,22">
+              <TextBlock Text="{Binding Title}" Style="{StaticResource SubtitleText}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding Message}" Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,8,0,0" />
+              <ItemsControl ItemsSource="{Binding Facts}" Margin="0,14,0,0" Focusable="False"
+                            Visibility="{Binding Facts.Count, Converter={StaticResource Visible}}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Grid Margin="0,4" AutomationProperties.Name="{Binding Label}">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="80" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Text="{Binding Label}" Style="{StaticResource SecondaryText}" />
+                      <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding Value}" Style="{StaticResource BodyStrongText}" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Detail}" Style="{StaticResource MonoCaptionText}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                   Visibility="{Binding Detail, Converter={StaticResource Visible}}" />
+                      </StackPanel>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Border Background="{DynamicResource CautionTintBrush}" CornerRadius="{StaticResource ControlCorner}" Padding="12,10" Margin="0,14,0,0"
+                      Visibility="{Binding Warning, Converter={StaticResource Visible}}">
+                <DockPanel>
+                  <TextBlock Style="{StaticResource IconText}" Text="&#xE7BA;" Foreground="{DynamicResource CautionBrush}" VerticalAlignment="Top" Margin="0,1,10,0" />
+                  <TextBlock Text="{Binding Warning}" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimaryBrush}"
+                             AutomationProperties.Name="{Binding Warning, StringFormat=Warning: {0}}" />
+                </DockPanel>
+              </Border>
+              <StackPanel Margin="0,14,0,0" Visibility="{Binding ListItems.Count, Converter={StaticResource Visible}}">
+                <TextBlock Text="{Binding ListHeading}" Style="{StaticResource CaptionText}" Margin="0,0,0,6" />
+                <ListBox ItemsSource="{Binding ListItems}" MaxHeight="132" AutomationProperties.Name="{Binding ListAutomationName}"
+                         FontFamily="{StaticResource MonoFont}" FontSize="12">
+                  <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource SelectableItem}">
+                      <Setter Property="Padding" Value="8,3" />
+                      <Setter Property="Margin" Value="0" />
+                      <Setter Property="AutomationProperties.Name" Value="{Binding Full}" />
+                      <Setter Property="ToolTip" Value="{Binding Full}" />
+                    </Style>
+                  </ListBox.ItemContainerStyle>
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+          <Border Grid.Row="1" Background="{DynamicResource DialogCommandBrush}" CornerRadius="0,0,8,8" Padding="24,20">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Button x:Name="DialogPrimary" Content="{Binding PrimaryText}" Command="{Binding PrimaryCommand}" KeyboardNavigation.AcceptsReturn="False"
+                      Visibility="{Binding HasPrimary, Converter={StaticResource Visible}}">
+                <Button.Style>
+                  <Style TargetType="Button" BasedOn="{StaticResource BaseButton}">
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding PrimaryIsDestructive}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource CriticalBrush}" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </Button.Style>
+              </Button>
+              <Button x:Name="DialogClose" Grid.Column="2" Content="{Binding CloseText}" Command="{Binding CloseCommand}"
+                      Style="{StaticResource AccentButton}"
+                      IsDefault="{Binding DataContext.HasDialog, RelativeSource={RelativeSource AncestorType=Window}}"
+                      IsCancel="{Binding DataContext.HasDialog, RelativeSource={RelativeSource AncestorType=Window}}" />
+            </Grid>
+          </Border>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

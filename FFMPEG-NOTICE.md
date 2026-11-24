@@ -1,6 +1,6 @@
 # FFmpeg notice
 
-This product distributes `ffprobe` and its required shared libraries from FFmpeg under the GNU Lesser General Public License, version 3 or later. The build is configured with `--enable-version3`, which applies LGPL version 3 to the libraries.
+This product distributes `ffprobe`, `ffmpeg` and their required shared libraries from FFmpeg under the GNU Lesser General Public License, version 3 or later. The build is configured with `--enable-version3`, which applies LGPL version 3 to the libraries.
 
 - Upstream: https://ffmpeg.org/
 - Exact FFmpeg source revision: https://github.com/FFmpeg/FFmpeg/tree/660b5aa7dbce1f95cb04b3c7b8e94d79f893d15d
@@ -11,6 +11,6 @@ This product distributes `ffprobe` and its required shared libraries from FFmpeg
 - Variant: Windows x64, LGPL shared; GPL/nonfree dependencies disabled.
 - Build system and dependency recipes: https://github.com/BtbN/FFmpeg-Builds/tree/7f2a6b1050d302144de8366afa37a75e46f326aa
 
-The exact configure line is reported by `tools\ffprobe.exe -version`. The included `FFMPEG-LICENSE.txt` contains the distributor's license text. `FFMPEG-BUILD.json` records the reviewed dependency pin, and `SHA256SUMS.txt` lists the installed payload files. Download the corresponding source revision above and consult the build system for the build configuration and dependency recipes.
+The exact configure line is reported by `tools\ffprobe.exe -version` and `tools\ffmpeg.exe -version`. The included `FFMPEG-LICENSE.txt` contains the distributor's license text. `FFMPEG-BUILD.json` records the reviewed dependency pin, and `SHA256SUMS.txt` lists the installed payload files. Download the corresponding source revision above and consult the build system for the build configuration and dependency recipes.
 
-Duplicate Video Cleaner launches ffprobe as a separate process and does not modify FFmpeg. Its shared libraries remain separate files in `tools` and may be replaced with compatible LGPL builds.
+Duplicate Video Cleaner launches ffprobe (metadata) and ffmpeg (one thumbnail frame per video) as separate processes and does not modify FFmpeg. The shared libraries remain separate files in `tools` and may be replaced with compatible LGPL builds.
