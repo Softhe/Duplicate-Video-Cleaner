@@ -64,11 +64,14 @@ internal sealed class WindowsProbeSandbox : IDisposable
 
     // allowWriters: let other programs keep the file open for writing (scans and
     // metadata). Survivor pins and removal keep the default, which rejects writers.
-    internal static FileStream OpenReadOnlyMedia(string path, bool allowWriters = false)
+    // allowDelete: reject writers but let the file be renamed or deleted while it is open
+    // (thumbnails, so a frame being decoded never blocks moving the file to Recovery).
+    internal static FileStream OpenReadOnlyMedia(string path, bool allowWriters = false, bool allowDelete = false)
     {
         var full = Path.GetFullPath(path);
         var extended = full.StartsWith(@"\\?\", StringComparison.Ordinal) ? full : full.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC\" + full[2..] : @"\\?\" + full;
-        var share = allowWriters ? 7u : 1u;
+        // FILE_SHARE_READ = 1, FILE_SHARE_WRITE = 2, FILE_SHARE_DELETE = 4.
+        var share = allowWriters ? 7u : allowDelete ? 5u : 1u;
         var handle = CreateFile(extended, 0x80000000, share, IntPtr.Zero, 3, 0x08200000, IntPtr.Zero);
         try
         {

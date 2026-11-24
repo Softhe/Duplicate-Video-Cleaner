@@ -10,6 +10,7 @@ internal static class ThumbnailTests
         ("thumbnail extraction rejects short, oversized and stalled output", RejectsBadOutput),
         ("thumbnail extraction skips a file changed since the scan", SkipsChangedFile),
         ("thumbnail extraction honours cancellation", HonoursCancellation),
+        ("thumbnail extraction in progress does not block removal", ExtractionDoesNotBlockRemoval),
         ("thumbnail extraction without ffmpeg returns nothing", MissingTool),
         ("thumbnail seek position stays inside short clips", SeekPosition),
         ("thumbnail cache round trip, invalidation and trimming", CacheRoundTrip),
@@ -58,6 +59,35 @@ internal static class ThumbnailTests
         }
         catch (OperationCanceledException) { }
     }, "wait media");
+
+    // A frame being decoded holds the file open; moving it to Recovery or deleting it must still work.
+    private static async Task ExtractionDoesNotBlockRemoval()
+    {
+        foreach (var permanent in new[] { false, true })
+            await WithFilesAsync(async (root, file) =>
+            {
+                await using var extractor = new ThumbnailExtractor(Fixture, TimeSpan.FromSeconds(20));
+                using var cancellation = new CancellationTokenSource();
+                var extraction = extractor.ExtractAsync(file, null, cancellation.Token);
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (!IsOpenElsewhere(file.FullPath) && DateTime.UtcNow < deadline) await Task.Delay(50);
+                True(IsOpenElsewhere(file.FullPath), "The extraction did not hold the file open.");
+                var result = await FileRemovalService.RemoveAsync([file], permanent, Path.Combine(root, "DuplicateCleanupLog.txt"));
+                True(result.Failures.Count == 0, $"Removal failed during extraction: {string.Join("; ", result.Failures.Select(failure => failure.Error))}");
+                // A permanent delete stays pending until the extraction's handle closes; the app
+                // cancels in-flight extraction when a removal starts.
+                cancellation.Cancel();
+                try { await extraction; } catch (OperationCanceledException) { }
+                True(!File.Exists(file.FullPath), $"The file was not removed ({(permanent ? "permanent" : "Recovery")}).");
+            }, "wait media");
+    }
+
+    // True while another handle denies exclusive access to the file.
+    private static bool IsOpenElsewhere(string path)
+    {
+        try { using var exclusive = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None); return false; }
+        catch (IOException) { return true; }
+    }
 
     private static async Task MissingTool() => await WithFilesAsync(async (root, file) =>
     {

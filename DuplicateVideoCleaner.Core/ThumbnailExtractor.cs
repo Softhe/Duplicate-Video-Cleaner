@@ -73,7 +73,7 @@ internal sealed class ThumbnailExtractor : IAsyncDisposable
     private static FileStream OpenValidated(VideoCandidate file)
     {
         using var directories = FileSnapshot.PinDirectories(Path.GetDirectoryName(file.FullPath)!);
-        var source = WindowsProbeSandbox.OpenReadOnlyMedia(file.FullPath, allowWriters: false);
+        var source = WindowsProbeSandbox.OpenReadOnlyMedia(file.FullPath, allowWriters: false, allowDelete: true);
         try
         {
             // Only the file Review shows: a replaced or edited file gets no frame.

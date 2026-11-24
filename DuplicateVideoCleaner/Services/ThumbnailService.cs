@@ -22,6 +22,7 @@ internal sealed class ThumbnailService : IThumbnailProvider, IAsyncDisposable
     private readonly Dictionary<string, ImageSource> _memory = new(StringComparer.Ordinal);
     private readonly Queue<string> _memoryOrder = new();
     private readonly CancellationTokenSource _shutdown = new();
+    private CancellationTokenSource _running = new();
     private int _workers;
     private bool _paused;
     private bool _enabled = true;
@@ -58,7 +59,13 @@ internal sealed class ThumbnailService : IThumbnailProvider, IAsyncDisposable
         get => _paused;
         set
         {
-            lock (_gate) _paused = value;
+            lock (_gate)
+            {
+                _paused = value;
+                // Stop extractions already running, so their read handles close before a
+                // removal starts (a permanent delete otherwise stays pending until they finish).
+                if (value) { _running.Cancel(); _running = new CancellationTokenSource(); }
+            }
             if (!value) StartWorkers();
         }
     }
@@ -154,7 +161,10 @@ internal sealed class ThumbnailService : IThumbnailProvider, IAsyncDisposable
         var frame = cacheable ? _cache!.TryGet(request.Key) : null;
         if (frame is null)
         {
-            frame = await _extractor.ExtractAsync(request.File, request.Duration, _shutdown.Token).ConfigureAwait(false);
+            CancellationToken running;
+            lock (_gate) running = _running.Token;
+            using var stop = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token, running);
+            frame = await _extractor.ExtractAsync(request.File, request.Duration, stop.Token).ConfigureAwait(false);
             if (frame is not null && cacheable) _cache!.Store(request.Key, frame);
         }
         return frame is null ? null : ToImage(frame);
